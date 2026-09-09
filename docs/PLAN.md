@@ -63,7 +63,9 @@ Project
               startingAssetId
               points[]          its own path
               markers[]         its own stops
-              settings          its own behaviour (autoRotate, size, life, trail, first-segment)
+              settings          its own behaviour (autoRotate, size, life, trail, first-segment;
+                                + momentum / weight / settle / … in M5, see §13)
+              follow?           M5: this track hangs off another (crate under the drone), see §13
 ```
 
 Three ideas, each with a clear home:
@@ -131,7 +133,7 @@ live preview (`previewSvg` extended to apply `orient`).
 
 ### Cost
 
-~0.5 day. Independent of everything else. Ships with the v3 model bump (§7).
+~0.5 day. Independent of everything else. Ships with the v3 model bump (§8).
 
 ---
 
@@ -298,7 +300,46 @@ The export dialog emits, per scene: the `scene.json`, a ready `<GaspScene .../>`
 
 ---
 
-## 7. Data model v3 + migration
+## 7. Feature 5 — preview mode
+
+A way to watch the animation as a visitor would — no editor chrome — without exporting.
+
+### Basic (ships with M1)
+
+A **Preview** toggle in the header. When on, the canvas hides everything that isn't the
+finished frame:
+
+- gone: grid, motion-path guide + halo, anchors, handles, marker dots, safe-zone overlays,
+  the editor frame rect, the pan/zoom affordance
+- kept: the layout's `viewBox` framed exactly (letterbox to its aspect), background, the
+  animated object(s)
+- a minimal transport strip (play / restart / scrub) pinned at the bottom, or press space
+- `Esc` or the toggle exits
+
+Cheap because the canvas already separates the chrome layer from the object layer — preview
+just stops rendering the chrome group and clamps the SVG to `layout.viewBox` with
+`preserveAspectRatio` from the layout.
+
+### Device-frame preview (with M3)
+
+Once layouts exist, preview gains a width selector — **Desktop / Tablet / Mobile / Fit** —
+that resizes the preview frame and lets the runtime layout picker choose, so you see the
+actual mobile path get selected at a narrow width. Optional phone/tablet bezel art around
+the frame.
+
+### Trigger preview (with M4)
+
+A "simulate trigger" button: hides the scene, shows a mock scrollport, and fires the
+configured trigger (`inview` etc.) when the frame scrolls into it — so you can check the
+first-frame state and the entry timing before it's on the real site.
+
+### Cost
+
+~0.5 day basic · +1 day device frames · +0.5 day trigger sim.
+
+---
+
+## 8. Data model v3 + migration
 
 ### v3 file
 
@@ -311,6 +352,7 @@ The export dialog emits, per scene: the `scene.json`, a ready `<GaspScene .../>`
     "id": "...", "name": "Drone delivery",
     "loop": true, "yoyo": false,
     "trigger": { "type": "inview-once", "amount": 0.35 },
+    "keepTotalTimingOnInsert": true,          // M6, §14 — editor-only, ignored by the runtime
     "layouts": [{
       "id": "...", "name": "desktop",
       "match": { "minWidth": 768 },
@@ -323,7 +365,9 @@ The export dialog emits, per scene: the `scene.json`, a ready `<GaspScene .../>`
         "markers": [ /* ... */ ],
         "settings": { /* autoRotate, rotationOffset, objectSize, closedPath, loopTension,
                          rotationalMorph, startHold, startDuration, startEase, startState,
-                         startClasses, life{}, trail{} */ }
+                         startClasses, life{}, trail{}
+                         — M5 adds: momentum{}, weight{}, settle{}, morphRecoil{}, speedLink{};
+                           life{} gains mode: 'sine' | 'organic' */ }
       }]
     }]
   }]
@@ -349,7 +393,7 @@ The export dialog emits, per scene: the `scene.json`, a ready `<GaspScene .../>`
 
 ---
 
-## 8. Module layout after the refactor
+## 9. Module layout after the refactor
 
 ```
 src/lib/
@@ -365,6 +409,7 @@ src/lib/
     markup.js         buildMarkup(track) / buildStage(layout)
     timelineJs.js     buildSceneJs(scene, layout)
     standalone.js     buildStandaloneHtml(scene)
+  dynamics.js         spring integrators + value noise, shared by editor + runtime
   runtime/
     gasp-runtime.js   register / mount / triggers / layout picker
     GaspScene.svelte  SvelteKit wrapper (shipped as a copy-paste snippet)
@@ -372,36 +417,42 @@ src/lib/
 src/
   App.svelte
   panels/  ScenePanel  TracksList  Inspector  AssetPanel  ExportDialog
-  Canvas.svelte  Timeline.svelte (multi-lane)
+  Canvas.svelte  Timeline.svelte (multi-lane)  PreviewFrame.svelte
   ui/  Slider Toggle Section LookEditor  (+ LaneRow, Tabs)
 ```
 
 ---
 
-## 9. Milestones
+## 10. Milestones
 
 | # | Scope | Depends on | Est. |
 |---|---|---|---|
 | **M0** | v3 model + migration + `serialize`/`load`, no behaviour change (implicit single scene/layout/track). Ship. | — | 1–2 d |
-| **M1** | Asset **Adjust** controls + `.gasp-orient` wrapper + morph-time orient tween. | M0 | 0.5 d |
+| **M1** | Asset **Adjust** controls + `.gasp-orient` wrapper + morph-time orient tween. **Basic preview mode** (§7). | M0 | 1 d |
 | **M2** | **Multi-track**: TracksList, scene master timeline, per-track renderers, ghosted non-selected paths, multi-lane timeline, Inspector 3-level split. Single implicit layout. | M0 | 4–6 d |
-| **M3** | **Layouts**: tabs, `match`, per-layout viewBox/background, duplicate-layout. | M2 | 2–3 d |
-| **M4** | **Multiple scenes** + `gasp-runtime.js` + `GaspScene.svelte` + export rework + trigger presets. | M3 | 3–4 d |
+| **M3** | **Layouts**: tabs, `match`, per-layout viewBox/background, duplicate-layout. **Device-frame preview**. | M2 | 3–4 d |
+| **M4** | **Multiple scenes** + `gasp-runtime.js` + `GaspScene.svelte` + export rework + trigger presets + **trigger preview**. | M3 | 4–5 d |
+| **M5** | **Physicality & richer life** (§13) — cherry-pickable; momentum + organic noise first. | M2 | 5–9 d |
+| **M6** | **Insert-marker timing preservation** (§14) — low priority, slots in any time after M2. | M2 | 1 d |
 | Post | Cross-layout marker linking · easing curve editor · onion-skinning · scroll-scrub trigger · copy motion between tracks. | — | — |
+
+Rough total for M0–M4: **~13–18 days** (≈ 3–4 focused weeks, one dev). M5 adds 5–9,
+M6 adds 1 — both optional and cherry-pickable.
 
 ---
 
-## 10. Non-goals for v3
+## 11. Non-goals for v3
 
 - No in-app SVG **path/node** editing (rotate/flip/scale/nudge only; redraw in Figma/Illustrator).
 - No scroll-**scrubbed** scenes (trigger-to-play only; scrub can be a later trigger type).
-- No physics / 3D / particle systems.
+- No rigid-body / collision physics, 3D, or particle systems. The §13 dynamics are
+  procedural secondary motion (springs + noise), not a simulator.
 - No per-frame keyframe editor — **markers stay the authoring model**.
 - No cross-layout "same marker" linking (duplicate + tweak).
 
 ---
 
-## 11. Open questions
+## 12. Open questions
 
 1. **`.gasp-orient` transformOrigin** — confirm GSAP rotates a `<g>` about the intended point
    after `norm` has centred the shape at the origin. May need explicit `svgOrigin`.
@@ -414,3 +465,123 @@ src/
    single-file standalone per scene. Whole-project bundle only if a site needs many scenes.
 6. **A track that never ends** — hold-to-scene-end vs a per-track "freeze at last frame" flag.
    Proposal: hold-to-end, revisit if it's annoying.
+7. **Dynamics wrapper depth** — momentum, off-weight and settle are all spring-driven dynamic
+   offsets. One `.gasp-dynamics` wrapper whose transform is composed in the frame callback
+   (keeps the stack ~8 deep) vs one wrapper each (clearer, ~10 deep). Proposal: one combined
+   wrapper.
+8. **Where dynamics run** — editor frame loop and `gasp-runtime` must produce identical
+   motion, so the spring/noise integrators live in a shared `dynamics.js` the export inlines.
+   Confirm the exported standalone stays dependency-free (no runtime import).
+9. **Insert-marker easing split** — accept a sub-frame visual discrepancy from re-applying the
+   parent easing in two pieces, or slice it exactly with `CustomEase` (free in gsap ≥ 3.11)?
+   Proposal: exact slice; fall back to linear halves if `CustomEase` is unavailable.
+
+---
+
+## 13. After v3 — physicality & richer life (M5)
+
+The current "alive" layer is three sine loops (`bob` / `sway` / `pulse`). It's too regular —
+it reads as clockwork, which is most of what "doesn't look alive" means. This section replaces
+and extends it with **motion-derived** secondary movement. All of it is procedural (springs +
+value noise), none of it is a physics simulation, and every effect is a toggle with 2–4 dials.
+
+Effects live on a single `.gasp-dynamics` wrapper (see open question 7); its transform is
+composed each frame in the scene renderer's `frame()` callback, which already samples path
+position. The integrators sit in a shared `dynamics.js` so the editor and `gasp-runtime`
+produce byte-identical motion.
+
+### Momentum / lag / bank
+
+The object stops snapping to the exact path tangent. Turn GSAP `autoRotate` off; compute the
+tangent ourselves (finite difference on `getPointAtLength`) and drive rotation through a
+**critically-damped spring** toward it. Effects that fall out:
+
+- on a sharp turn the nose swings wide, then settles
+- extra **roll into turns** proportional to `curvature × speed`
+- **pitch** proportional to along-path acceleration (leans back accelerating, forward braking)
+
+`track.settings.momentum = { enabled, responsiveness, overshoot, bank, pitch }`
+(`overshoot` = spring damping < 1; `responsiveness` = natural frequency.)
+
+### Off-weight
+
+Fakes mass. Two versions:
+
+- **Single-object** — the shape swings about a pivot (`pivotY`, 0 = top of the norm box),
+  rotation driven by the parent's horizontal acceleration through a damped spring: jerk left,
+  the body tilts right and overshoots back. Same integrator as momentum, different input.
+  `track.settings.weight = { enabled, amount, pivotY, springiness, damping }`
+- **Follower track** (needs M2) — a track declares
+  `follow = { leaderId, lagMs, tether: { length, stiffness, damping } }`. Its position is the
+  leader's position `lagMs` ago (reuse the trail history buffer) plus a **pendulum** offset
+  integrated from the leader's acceleration + gravity. This makes "crate on a line under the
+  drone" a real thing — it genuinely swings and settles. Bigger lift; do it if the delivery
+  scene needs it.
+
+### Organic idle (replaces the sines)
+
+`life` gains a mode: `sine` (current) or `organic`. Organic sums 2–3 octaves of value noise
+(simplex) for position and rotation, amplitude `turbulence`. Wind buffeting a hovering drone.
+Keep `sine` for mechanical objects.
+
+### Settle on arrival
+
+At each stop's `arriveAt`, a short **damped oscillation** on position + rotation offset, on the
+dynamics wrapper so it doesn't fight authored `state`. `settle = { enabled, amount, bounces, duration }`.
+
+### Recoil on morph
+
+When a morph fires — especially `morphType: 'hold'`, the grab — a scale-punch
+(`1 → 1.1 → 1` over ~0.2 s) and/or a 1–2 px shake. Per-marker override, global default.
+`morphRecoil = { scale, shake, duration }`.
+
+### Anticipation (lower value)
+
+Auto-generated counter-move before a big direction change or before a hold ends. Toggle +
+magnitude. List it; build last.
+
+### Speed-linked coupling
+
+Optionally scale `trail.count`, idle amplitude, and a "rotor blur" opacity by normalised
+instantaneous path speed, so fast passages *look* fast. `speedLink = { trail, life, blur }`.
+
+### Order within M5
+
+momentum → organic idle (these two do most of the work) → settle → recoil → off-weight
+single → follower track → speed-link → anticipation. Each is independently shippable.
+
+---
+
+## 14. Lower priority — insert a marker without shifting the timeline (M6)
+
+Purely an authoring convenience. You often add a marker mid-segment *just* to keyframe a
+rotation tweak for liveness — and you don't want that to move everything downstream in time.
+
+### Toggle
+
+Scene-level **"Keep total timing when inserting markers"** (default on). Only affects the
+*insert* action; editing durations by hand afterwards is unaffected.
+
+### Behaviour
+
+Inserting marker `N` at path progress `p_N` between existing stops `A` and `B`, where `A→B`
+currently takes `d_AB` seconds with easing `ease_A`:
+
+1. `f = arcLengthFraction(p_N)` within the `A→B` sub-path (0..1).
+2. `t = easeInverse_A(f)` — numerically invert `A`'s easing (binary search on
+   `gsap.parseEase(ease_A)`), so `t` is *when*, in eased time, the object currently passes `p_N`.
+3. `A.duration = d_AB · t` , `N.duration = d_AB · (1 − t)`.
+4. Easing on the two halves: slice `ease_A` into `CustomEase` curves for `0..t` and `t..1`,
+   each renormalised to `0..1` and assigned to `A` and `N`. (Fallback: `none` on both halves —
+   sub-frame drift only.)
+
+Result: `d_AB` is preserved so every downstream marker keeps its absolute time, **and** the
+object still passes through `p_N` at exactly the same instant — inserting the marker is a
+visual no-op until you actually tweak `N`.
+
+With the toggle **off**, insert keeps today's behaviour: `A.duration` unchanged, `N.duration`
+= default, total time grows.
+
+### Cost
+
+~1 day. Independent; any time after M2 (which reshapes the marker/track model).
