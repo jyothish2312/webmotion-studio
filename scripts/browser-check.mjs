@@ -8,7 +8,7 @@
  */
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = join(REPO, 'dist');
 const PORT = Number(process.env.GASP_PORT ?? 5199);
+const EXPORT_OUT = join(REPO, 'node_modules', '.cache', 'gasp-export.html');
 const CDP_PORT = Number(process.env.GASP_CDP_PORT ?? 9333);
 
 const CHROME_CANDIDATES = [
@@ -49,6 +50,12 @@ const TYPES = {
 const server = createServer(async (req, res) => {
 	try {
 		const url = req.url.split('?')[0];
+		if (url === '/export') {
+			const body = await readFile(EXPORT_OUT);
+			res.writeHead(200, { 'Content-Type': 'text/html' });
+			res.end(body);
+			return;
+		}
 		const file = normalize(join(ROOT, url === '/' ? 'index.html' : url));
 		if (!file.startsWith(ROOT)) throw new Error('escaped root');
 		const body = await readFile(file);
@@ -406,6 +413,48 @@ await wait(500);
 await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Delete layout"]')]; if (b.length) b[0].click(); })()`);
 await wait(700);
 
+// --- scenes ---------------------------------------------------------------
+const sceneCount0 = await evaluate(`document.querySelectorAll('header select option').length`);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.title === 'New scene').click()`);
+await wait(900);
+const sceneCount1 = await evaluate(`document.querySelectorAll('header select option').length`);
+check('a project can hold several scenes', sceneCount1 === sceneCount0 + 1, `${sceneCount0} -> ${sceneCount1}`);
+const freshScene = await evaluate(`({
+  shapes: document.querySelectorAll('.gasp-shape').length,
+  lanes: document.querySelectorAll('[title*="drag to change its start offset"]').length
+})`);
+check('switching to a new scene rebuilds the stage', freshScene?.shapes === 1, JSON.stringify(freshScene));
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.title === 'Delete scene').click()`);
+await wait(800);
+
+// --- export ----------------------------------------------------------------
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Get GSAP code').click()`);
+await wait(500);
+async function readTab(label) {
+  await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}).click()`);
+  await wait(400);
+  return evaluate(`document.querySelector('pre').textContent`);
+}
+const jsTab = await readTab('GSAP timeline');
+const jsonTab = await readTab('Scene data');
+const svelteTab = await readTab('Svelte');
+const htmlTab = await readTab('Standalone page');
+
+check('timeline export builds a scene master', jsTab.includes('const master = gsap.timeline'), `${jsTab.length} chars`);
+check('timeline export unpauses each child so the master drives it', jsTab.includes('.paused(false)'));
+check('scene data is valid JSON carrying only the assets it uses', (() => {
+  try {
+    const parsed = JSON.parse(jsonTab);
+    return parsed.version === 3 && parsed.scenes.length === 1 && parsed.assets.length >= 1 && parsed.assets.length <= 3;
+  } catch { return false; }
+})(), `${jsonTab.length} chars`);
+check('svelte snippet references GaspScene', svelteTab.includes('<GaspScene') && svelteTab.includes('trigger='));
+check('standalone page includes the morph plugin', htmlTab.includes('MorphSVGPlugin') && htmlTab.includes('data-gasp-stage'));
+
+await writeFile(EXPORT_OUT, htmlTab, 'utf8');
+await evaluate(`document.querySelector('[data-modal] [aria-label="Close"]').click()`);
+await wait(300);
+
 // --- untrusted project file ----------------------------------------------
 // `asset.d` is written verbatim by load(). It must never reach the DOM as
 // markup — asset previews render it as an attribute, not as {@html}.
@@ -427,6 +476,37 @@ const injection = await evaluate(
 	`({ pwned: !!document.getElementById('pwned-marker'), imported: [...document.querySelectorAll('aside .truncate')].map(e => e.textContent.trim()) })`
 );
 check('untrusted asset.d cannot inject DOM nodes', injection?.pwned === false, `imported assets: ${JSON.stringify(injection?.imported)}`);
+
+// --- the exported page, running on its own --------------------------------
+// The real proof of the export: load it with no editor around it and see the
+// scene run off the CDN.
+const errorsBefore = pageErrors.length;
+await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/export` });
+await wait(3000);
+const probeStandalone = `(() => {
+  const s = document.querySelector('.gasp-shape');
+  const p = document.querySelector('.gasp-place');
+  const b = p && p.getBoundingClientRect();
+  return {
+    len: s ? (s.getAttribute('d') || '').length : 0,
+    stage: !!document.querySelector('[data-gasp-stage]'),
+    center: b ? [Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)] : null
+  };
+})()`;
+const e1 = await evaluate(probeStandalone);
+await wait(1100);
+const e2 = await evaluate(probeStandalone);
+check('exported page builds the stage', e1?.stage === true);
+check('exported page paints the shape', e1?.len > 20, `d length ${e1?.len}`);
+check(
+  'exported page animates with no editor present',
+  e1?.center && e2?.center &&
+    Math.abs(e1.center[0] - e2.center[0]) + Math.abs(e1.center[1] - e2.center[1]) > 5,
+  `${JSON.stringify(e1?.center)} -> ${JSON.stringify(e2?.center)}`
+);
+check('exported page runs clean', pageErrors.length === errorsBefore,
+  pageErrors.slice(errorsBefore).join(' | ') || 'no new errors');
+
 
 console.log('\n--- console errors ---');
 console.log(consoleErrors.length ? consoleErrors.join('\n') : '(none)');

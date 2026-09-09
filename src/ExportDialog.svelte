@@ -1,6 +1,12 @@
 <script>
 	import { project, activeScene, activeLayout, activeTrack } from './lib/state.svelte.js';
-	import { buildTimelineJs, buildMarkup, buildStandaloneHtml } from './lib/exportCode.js';
+	import {
+		buildTimelineJs,
+		buildStageMarkup,
+		buildStandaloneHtml,
+		buildSceneJson,
+		buildSvelteSnippet
+	} from './lib/exportCode.js';
 
 	let { onclose } = $props();
 
@@ -8,9 +14,11 @@
 	let copied = $state(false);
 
 	const TABS = [
-		{ id: 'js', label: 'GSAP timeline' },
-		{ id: 'markup', label: 'SVG markup' },
-		{ id: 'html', label: 'Standalone page' }
+		{ id: 'js', label: 'GSAP timeline', ext: 'js' },
+		{ id: 'markup', label: 'SVG markup', ext: 'svg' },
+		{ id: 'html', label: 'Standalone page', ext: 'html' },
+		{ id: 'json', label: 'Scene data', ext: 'json' },
+		{ id: 'svelte', label: 'Svelte', ext: 'svelte' }
 	];
 
 	const ctx = $derived({
@@ -21,10 +29,12 @@
 	});
 
 	const code = $derived.by(() => {
-		if (!ctx.scene || !ctx.layout || !ctx.track) return '// nothing to export yet';
+		if (!ctx.scene || !ctx.layout) return '// nothing to export yet';
 		try {
 			if (tab === 'js') return buildTimelineJs(ctx);
-			if (tab === 'markup') return buildMarkup(ctx);
+			if (tab === 'markup') return buildStageMarkup(ctx);
+			if (tab === 'json') return buildSceneJson(ctx);
+			if (tab === 'svelte') return buildSvelteSnippet(ctx);
 			return buildStandaloneHtml(ctx);
 		} catch (err) {
 			return `// export failed: ${err.message}`;
@@ -54,7 +64,7 @@
 
 	function download() {
 		const name = project.name.replace(/\s+/g, '_') || 'animation';
-		const ext = tab === 'html' ? 'html' : tab === 'markup' ? 'svg' : 'js';
+		const ext = TABS.find((t) => t.id === tab)?.ext ?? 'txt';
 		const blob = new Blob([code], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');

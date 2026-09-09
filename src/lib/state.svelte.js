@@ -55,6 +55,28 @@ export function activeLayout() {
 	return scene.layouts.find((l) => l.id === ui.activeLayoutId) ?? scene.layouts[0] ?? null;
 }
 
+/** Adds a scene and switches to it. */
+export function addScene(scene) {
+	project.scenes = [...project.scenes, scene];
+	ui.activeSceneId = scene.id;
+	ui.activeLayoutId = scene.layouts[0]?.id ?? null;
+	ui.selectedTrackId = scene.layouts[0]?.tracks[0]?.id ?? null;
+	ui.selectedMarkerId = null;
+	return scene;
+}
+
+export function removeScene(id) {
+	if (project.scenes.length <= 1) return;
+	project.scenes = project.scenes.filter((s) => s.id !== id);
+	if (ui.activeSceneId === id) {
+		const first = project.scenes[0];
+		ui.activeSceneId = first.id;
+		ui.activeLayoutId = first.layouts[0]?.id ?? null;
+		ui.selectedTrackId = first.layouts[0]?.tracks[0]?.id ?? null;
+	}
+	ui.selectedMarkerId = null;
+}
+
 /** Adds a layout to the active scene and switches to it. */
 export function addLayout(layout) {
 	const scene = activeScene();

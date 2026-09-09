@@ -5,11 +5,28 @@
 	import AssetPanel from './AssetPanel.svelte';
 	import ExportDialog from './ExportDialog.svelte';
 	import LayoutTabs from './LayoutTabs.svelte';
-	import { project, ui, serialize, load, hydrateAssets, resetSelection } from './lib/state.svelte.js';
+	import {
+		project,
+		ui,
+		serialize,
+		load,
+		hydrateAssets,
+		resetSelection,
+		activeScene,
+		addScene,
+		removeScene
+	} from './lib/state.svelte.js';
+	import { makeScene } from './lib/model.js';
 	import { onMount } from 'svelte';
 
 	let showExport = $state(false);
 	let importError = $state(null);
+
+	const scene = $derived(activeScene());
+
+	function newScene() {
+		addScene(makeScene({ name: `Scene ${project.scenes.length + 1}` }));
+	}
 
 	onMount(() => {
 		hydrateAssets();
@@ -57,10 +74,43 @@
 			</div>
 			<input
 				type="text"
-				class="rounded border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition-colors hover:border-line focus:border-accent"
+				class="w-44 rounded border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition-colors hover:border-line focus:border-accent"
 				bind:value={project.name}
 				placeholder="Project name"
 			/>
+
+			<!-- Scenes are independent on a page: own timeline, own trigger. -->
+			<div class="flex items-center gap-1 border-l border-line pl-3 text-xs">
+				<span class="text-[10px] font-bold tracking-wider text-muted">SCENE</span>
+				<select
+					class="field w-40 py-1 text-xs"
+					value={ui.activeSceneId ?? scene?.id}
+					onchange={(e) => {
+						const next = project.scenes.find((s) => s.id === e.currentTarget.value);
+						if (!next) return;
+						ui.activeSceneId = next.id;
+						ui.activeLayoutId = next.layouts[0]?.id ?? null;
+						ui.selectedTrackId = next.layouts[0]?.tracks[0]?.id ?? null;
+						ui.selectedMarkerId = null;
+					}}
+				>
+					{#each project.scenes as s (s.id)}
+						<option value={s.id}>{s.name}</option>
+					{/each}
+				</select>
+				<button
+					class="rounded border border-line bg-raise px-2 py-1 text-muted transition-colors hover:border-accent hover:text-white"
+					onclick={newScene}
+					title="New scene">+</button
+				>
+				{#if project.scenes.length > 1}
+					<button
+						class="rounded border border-line bg-raise px-2 py-1 text-muted transition-colors hover:border-danger hover:text-danger"
+						onclick={() => scene && removeScene(scene.id)}
+						title="Delete scene">✕</button
+					>
+				{/if}
+			</div>
 		</div>
 
 		<div class="flex items-center gap-2 text-xs">

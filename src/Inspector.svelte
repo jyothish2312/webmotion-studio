@@ -3,6 +3,7 @@
 		project,
 		ui,
 		EASES,
+		TRIGGERS,
 		selectedMarker,
 		activeScene,
 		activeLayout,
@@ -170,6 +171,40 @@
 					hint="Play forwards then backwards instead of jumping back to the start."
 				/>
 			{/if}
+
+			<label class="mt-3 mb-2 block">
+				<span class="field-label">Starts on a page when</span>
+				<select bind:value={scene.trigger.type} class="field">
+					{#each TRIGGERS as t (t.value)}
+						<option value={t.value}>{t.label}</option>
+					{/each}
+				</select>
+			</label>
+			{#if scene.trigger.type === 'visible-amount'}
+				<Slider
+					label="Visible share needed"
+					bind:value={scene.trigger.amount}
+					min={0.05}
+					max={1}
+					step={0.05}
+					decimals={2}
+				/>
+			{/if}
+			{#if scene.trigger.type !== 'manual'}
+				<Slider
+					label="Delay after triggering"
+					bind:value={scene.trigger.delay}
+					min={0}
+					max={5}
+					step={0.1}
+					suffix="s"
+					decimals={1}
+				/>
+			{/if}
+			<p class="hint">
+				Read only by the page runtime — the editor always plays on demand. Scenes on a page each
+				get their own timeline and trigger.
+			</p>
 		</Section>
 
 		<Section
