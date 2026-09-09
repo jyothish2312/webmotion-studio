@@ -201,10 +201,16 @@
 					decimals={1}
 				/>
 			{/if}
-			<p class="hint">
+			<p class="hint mb-3">
 				Read only by the page runtime — the editor always plays on demand. Scenes on a page each
 				get their own timeline and trigger.
 			</p>
+
+			<Toggle
+				label="Keep total timing when adding a marker"
+				bind:checked={scene.keepTotalTimingOnInsert}
+				hint="Splits the segment you drop into instead of lengthening the scene, and slices its easing — so adding a marker changes nothing until you edit it."
+			/>
 		</Section>
 
 		<Section

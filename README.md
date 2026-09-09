@@ -14,7 +14,20 @@ npm run dev
 
 ## The model
 
-Everything is a **stop**. A stop is:
+```
+Project
+  assets[]                 shared everywhere; each carries its own orientation fix
+  scenes[]                 one master timeline, one page trigger
+    layouts[]              one stage per breakpoint, chosen at runtime by size
+      tracks[]             one object: its own path, stops and behaviour
+```
+
+**Tracks inside a scene share one timeline** — their timing is related by design
+(the crate lifts exactly when the drone arrives), so they scrub together and
+`track.offset` says where each starts. **Scenes on a page are independent** —
+own timeline, own trigger, and an off-screen scene stays paused.
+
+Within a track, everything is a **stop**. A stop is:
 
 ```
 arrive  ->  hold (optional dwell)  ->  travel to the next stop
@@ -31,6 +44,23 @@ At each stop you set:
 | **Travel** | Seconds to reach the next stop, plus its easing. |
 | **Morph** | Which shape to become, and whether that happens during the hold, during the travel, or over a custom length. |
 | **Look** | Scale, rotation, opacity, stroke colour, stroke width, fill — tweened from this stop to the next. |
+
+## Physicality
+
+Beyond the authored stops, each track can carry procedural secondary motion —
+springs and value noise, not a simulator, and all optional:
+
+| | |
+|---|---|
+| **Momentum** | A spring chases the path heading instead of snapping to it, so the nose swings wide on a corner and settles. Rolls into turns by curvature × speed and pitches against acceleration. Takes rotation away from `autoRotate`. |
+| **Off-weight** | The body tilts against its own sideways acceleration, then overshoots back. Fakes mass. |
+| **Organic idle** | Summed octaves of noise instead of sine loops. Sines repeat exactly, which is why they read as clockwork. |
+| **Settle / recoil** | A damped wobble on arrival and a scale punch on a morph. These *are* authored, so unlike the rest they scrub. |
+
+Springs run on `gsap.ticker`, not the timeline — a track's timeline only fires
+while the playhead is inside its window, so a finished track would otherwise
+freeze. Seeking snaps every spring and drops its speed history, so a scrubbed
+frame is reproducible no matter how you got there.
 
 Two things are deliberately **not** on the scrub timeline:
 
@@ -53,22 +83,29 @@ time directly.
 
 | File | |
 |---|---|
-| `src/lib/engine.js` | Builds the GSAP timeline. `planStops()` is pure — no DOM, no GSAP — and is shared with the code export. |
+| `src/lib/model.js` | The v3 shape, factories that coerce untrusted input, `migrate()` from v1/v2, and `pickLayout()`. |
+| `src/lib/engine.js` | `planStops` / `planScene` are pure — no DOM, no GSAP. `createTrackRenderer` builds one object; `createSceneRenderer` composes them onto a master. |
+| `src/lib/dynamics.js` | Springs, angle springs and value noise. No DOM, no GSAP, so editor and runtime match exactly. |
 | `src/lib/svg.js` | Gets arbitrary artwork into one shared coordinate space. Morphing only looks right if both shapes are measured the same way. |
 | `src/lib/path.js` | Bezier path generation and projecting a click onto the path. |
+| `src/lib/insertMarker.js` | Splits a segment instead of lengthening it, inverting and slicing its easing. |
 | `src/lib/exportCode.js` | Emits the timeline **unrolled** — one explicit call per keyframe, so the output is readable and hand-editable. |
-| `src/lib/state.svelte.js` | Project state (Svelte 5 runes) plus save/load, including migration from v1 files. |
-| `src/Canvas.svelte` | The editor surface and the five nested wrappers the engine drives. |
+| `src/lib/runtime/` | `gaspRuntime.js` + `GaspScene.svelte` — copy these into the site that hosts the animation. |
+| `src/lib/state.svelte.js` | Project state (Svelte 5 runes), navigation accessors, save/load. |
+| `src/TrackObject.svelte` | One track's wrapper stack, mirrored exactly by the exporter. |
 
-### Why five nested `<g>` wrappers
+### Why nine nested `<g>` wrappers
 
 ```
-.gasp-place   motion path: position + auto-rotation
-  .gasp-life  idle bob / sway / breathe
-    .gasp-fx  per-stop scale, rotation, opacity
-      .gasp-size   base object size
-        .gasp-norm normalisation, tweened during a morph
-          .gasp-shape  the path MorphSVG rewrites
+.gasp-place       motion path: position (+ auto-rotation, unless momentum owns it)
+  .gasp-dyn       ticker-driven: heading lag, bank, pitch, off-weight, organic idle
+    .gasp-life    sine idle bob / sway / breathe
+      .gasp-accent  settle and morph recoil (authored, so they scrub)
+        .gasp-fx    per-stop scale, rotation, opacity
+          .gasp-size    base object size
+            .gasp-orient  the artwork's own rotation / flip / nudge
+              .gasp-norm  measured centering, tweened during a morph
+                .gasp-shape  the path MorphSVG rewrites
 ```
 
 One concern each. GSAP composes transforms per element, so anything sharing a wrapper
@@ -81,15 +118,60 @@ jitter.
 `Del` delete selection · `0` reset view · `Alt`+drag pan · wheel zoom ·
 `Alt` while dragging a handle breaks the mirror
 
+## Putting it on a page
+
+```svelte
+<script>
+  import GaspScene from '$lib/gasp/GaspScene.svelte';
+  import droneDelivery from '$lib/gasp/drone-delivery.json';
+</script>
+
+<GaspScene name="drone-delivery" scene={droneDelivery} trigger="inview-once" />
+```
+
+Copy `src/lib/runtime/gaspRuntime.js` and `GaspScene.svelte` into your site. The
+runtime re-picks the layout from the element's measured size using the same
+`pickLayout` call the editor's preview makes, so the two cannot drift.
+
+Triggers: `inview-once` (default), `inview`, `visible-amount`, `load`, `manual`.
+IntersectionObserver, not ScrollTrigger — ScrollTrigger only earns its ~40KB if
+a scene later needs scroll *scrubbing*. `prefers-reduced-motion` jumps to the
+finished frame, since the end state is usually the point.
+
 ## Export
 
-**Get GSAP code** gives you three views:
+**Get GSAP code** gives you five views:
 
-- **GSAP timeline** — the JS, unrolled.
-- **SVG markup** — the structure that JS expects to find.
-- **Standalone page** — both plus CDN script tags. Open it in a browser and it runs.
+- **GSAP timeline** — the JS, unrolled, one section per track under a scene master.
+- **SVG markup** — the stage that JS expects to find.
+- **Standalone page** — both plus CDN script tags. Open it and it runs.
+- **Scene data** — the JSON the runtime consumes, carrying only the assets used.
+- **Svelte** — a copy-paste `<GaspScene>` snippet.
 
-**Save** / **Open** handle the editable `.json` project.
+**Save** / **Open** handle the editable `.json` project (v1 and v2 files migrate).
+
+## Tests
+
+```bash
+npm test           # unit: planning, model + migrations, layout picking, dynamics
+npm run test:browser   # drives the built app in headless Chrome over CDP
+```
+
+The engine's failure modes are visual — an empty path at the origin, a morph
+that snaps, a scrub landing on the wrong frame — so the browser check exists to
+catch what unit tests structurally cannot. It found the majority of the real
+bugs in this codebase.
+
+## Adding a marker mid-segment
+
+You often drop a marker in purely to keyframe a rotation tweak, and you do not
+want every later marker sliding along the timeline. With **Keep total timing**
+on (Scene panel, default), the segment you land in keeps its duration: the time
+is split between the two halves, and the split lands at the moment the object
+*actually* passes that point — the easing is inverted to find it, then sliced
+into two normalised halves with `CustomEase`.
+
+The result is that inserting a marker is a visual no-op until you edit it.
 
 ## Notes and limits
 

@@ -13,7 +13,8 @@
 		DEVICES
 	} from './lib/state.svelte.js';
 	import TrackObject from './TrackObject.svelte';
-	import { makeMarker, makePoint } from './lib/model.js';
+	import { makePoint } from './lib/model.js';
+	import { insertMarker } from './lib/insertMarker.js';
 	import { buildPathD, pointAt, projectToPath, clamp01 } from './lib/path.js';
 	import { createSceneRenderer } from './lib/engine.js';
 
@@ -337,9 +338,13 @@
 	}
 
 	function addMarker(x, y) {
-		const progress = projectToPath(pathEl, x, y);
-		const marker = makeMarker(clamp01(progress));
-		track.markers = [...track.markers, marker];
+		const progress = clamp01(projectToPath(pathEl, x, y));
+		// With the scene toggle on, the segment keeps its total duration and the
+		// easing is sliced, so dropping a marker in to tweak a rotation does not
+		// shove every later marker along the timeline.
+		const marker = insertMarker(track, progress, {
+			keepTotalTiming: scene?.keepTotalTimingOnInsert !== false
+		});
 		ui.selectedMarkerId = marker.id;
 		ui.mode = 'edit';
 	}

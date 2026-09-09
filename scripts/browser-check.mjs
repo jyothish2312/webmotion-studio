@@ -150,6 +150,24 @@ const DURATION_JS = `(() => {
   return el ? parseFloat(el.split('/')[1]) : null;
 })()`;
 
+/**
+ * Clears the marker selection so the Inspector shows the Scene/Track panel
+ * again. Several later checks toggle controls that only exist there.
+ */
+async function deselect() {
+	await evaluate(
+		`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Select / edit').click()`
+	);
+	const r = await evaluate(
+		`(() => { const s = document.querySelector('svg[role=application]'); const b = s.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })()`
+	);
+	const x = r[0] + r[2] * 0.06;
+	const y = r[1] + r[3] * 0.08;
+	await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1 });
+	await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, buttons: 0 });
+	await wait(300);
+}
+
 let failures = 0;
 const check = (label, ok, detail = '') => {
 	console.log(`${ok ? 'ok  ' : 'FAIL'}: ${label}${detail ? ' -> ' + detail : ''}`);
@@ -417,6 +435,48 @@ await wait(500);
 // Back to a single layout so later checks read the original scene.
 await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Delete layout"]')]; if (b.length) b[0].click(); })()`);
 await wait(700);
+
+// --- inserting a marker ---------------------------------------------------
+// Dropping a marker mid-segment to tweak something must not shove every later
+// marker along the timeline.
+const beforeInsert = await evaluate(DURATION_JS);
+const markersBefore = await evaluate(`document.querySelectorAll('[title="Select marker"]').length`);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add marker').click()`);
+await wait(300);
+const canvasRect = await evaluate(`(() => { const s = document.querySelector('svg[role=application]'); const r = s.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`);
+await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasRect[0] + canvasRect[2] * 0.35, y: canvasRect[1] + canvasRect[3] * 0.72, button: 'left', clickCount: 1, buttons: 1 });
+await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: canvasRect[0] + canvasRect[2] * 0.35, y: canvasRect[1] + canvasRect[3] * 0.72, button: 'left', clickCount: 1, buttons: 0 });
+await wait(900);
+const afterInsert = await evaluate(DURATION_JS);
+const markersAfter = await evaluate(`document.querySelectorAll('[title="Select marker"]').length`);
+
+check('adding a marker actually adds one', markersAfter === markersBefore + 1, `${markersBefore} -> ${markersAfter}`);
+check('adding a marker leaves the total timing alone', Math.abs(afterInsert - beforeInsert) < 0.05,
+  `${beforeInsert}s -> ${afterInsert}s`);
+
+// With the toggle off it should lengthen the scene instead. The new marker is
+// selected, so the Inspector is on the Marker panel — go back to Scene first.
+await deselect();
+await evaluate(`(() => {
+  const l = [...document.querySelectorAll('aside label')].find(l => l.textContent.trim().startsWith('Keep total timing'));
+  l.querySelector('input[type=checkbox]').click();
+})()`);
+await wait(400);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add marker').click()`);
+await wait(300);
+await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasRect[0] + canvasRect[2] * 0.62, y: canvasRect[1] + canvasRect[3] * 0.3, button: 'left', clickCount: 1, buttons: 1 });
+await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: canvasRect[0] + canvasRect[2] * 0.62, y: canvasRect[1] + canvasRect[3] * 0.3, button: 'left', clickCount: 1, buttons: 0 });
+await wait(900);
+const afterOff = await evaluate(DURATION_JS);
+check('with the toggle off it lengthens the scene instead', afterOff > afterInsert + 0.2, `${afterInsert}s -> ${afterOff}s`);
+await deselect();
+await evaluate(`(() => {
+  const l = [...document.querySelectorAll('aside label')].find(l => l.textContent.trim().startsWith('Keep total timing'));
+  l.querySelector('input[type=checkbox]').click();
+})()`);
+await wait(400);
+
+await deselect();
 
 // --- physicality ----------------------------------------------------------
 // Momentum takes rotation away from autoRotate and gives it to a spring, so the
