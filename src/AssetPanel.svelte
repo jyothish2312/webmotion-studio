@@ -4,6 +4,7 @@
 	import { parseSvgFile, hydrateAsset } from './lib/svg.js';
 	import AssetPreview from './ui/AssetPreview.svelte';
 	import AssetAdjust from './ui/AssetAdjust.svelte';
+	import TracksList from './TracksList.svelte';
 
 	let error = $state(null);
 	let adjusting = $state(null);
@@ -82,6 +83,8 @@
 			the mirror.
 		</p>
 	</div>
+
+	<TracksList />
 
 	<div class="border-b border-line px-4 py-2.5 text-[11px] font-bold tracking-wider text-muted">
 		SHAPES

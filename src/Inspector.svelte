@@ -144,6 +144,38 @@
 			</label>
 		</Section>
 	{:else if track && scene}
+		<Section title="Scene" hint="Applies to every track in this scene.">
+			<label class="mb-3 block">
+				<span class="field-label">Scene name</span>
+				<input type="text" bind:value={scene.name} class="field" />
+			</label>
+			<Toggle label="Loop forever" bind:checked={scene.loop} />
+			{#if scene.loop}
+				<Toggle
+					label="Ping-pong"
+					bind:checked={scene.yoyo}
+					hint="Play forwards then backwards instead of jumping back to the start."
+				/>
+			{/if}
+		</Section>
+
+		<Section title="Track" hint="This object only.">
+			<label class="mb-3 block">
+				<span class="field-label">Name</span>
+				<input type="text" bind:value={track.name} class="field" />
+			</label>
+			<Slider
+				label="Starts after"
+				bind:value={track.offset}
+				min={0}
+				max={20}
+				step={0.1}
+				suffix="s"
+				decimals={1}
+				hint="Where this track sits on the scene timeline. The one thing that couples tracks to each other."
+			/>
+		</Section>
+
 		<Section title="Object">
 			<label class="mb-3 block">
 				<span class="field-label">Starting shape</span>
@@ -186,7 +218,7 @@
 			/>
 		</Section>
 
-		<Section title="Path & loop">
+		<Section title="Path">
 			<Toggle label="Close the path" bind:checked={settings.closedPath} />
 			{#if settings.closedPath}
 				<Slider
@@ -196,14 +228,6 @@
 					max={2}
 					step={0.1}
 					decimals={1}
-				/>
-			{/if}
-			<Toggle label="Loop forever" bind:checked={scene.loop} />
-			{#if scene.loop}
-				<Toggle
-					label="Ping-pong"
-					bind:checked={scene.yoyo}
-					hint="Play forwards then backwards instead of jumping back to the start."
 				/>
 			{/if}
 		</Section>

@@ -135,6 +135,14 @@ const evaluate = async (expression) => {
 	return r.result?.result?.value;
 };
 
+/** Scene duration from the transport readout, e.g. "1.20 / 4.60s". */
+const DURATION_JS = `(() => {
+  const el = [...document.querySelectorAll('.tabular-nums')]
+    .map(e => e.textContent.trim())
+    .find(t => t.indexOf('/') > -1 && t.charAt(t.length - 1) === 's');
+  return el ? parseFloat(el.split('/')[1]) : null;
+})()`;
+
 let failures = 0;
 const check = (label, ok, detail = '') => {
 	console.log(`${ok ? 'ok  ' : 'FAIL'}: ${label}${detail ? ' -> ' + detail : ''}`);
@@ -201,7 +209,7 @@ check('object travels along the path while playing', moved, `${JSON.stringify(t1
 
 // --- scrubbing ------------------------------------------------------------
 const track = await evaluate(
-	`(() => { const t = document.querySelector('.cursor-ew-resize'); const r = t.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`
+	`(() => { const t = document.querySelector('[data-scrub-ruler]'); const r = t.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`
 );
 
 async function scrubTo(fraction) {
@@ -287,6 +295,71 @@ await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent
 await wait(400);
 const restored = await evaluate(`document.querySelectorAll('circle[data-type="anchor"]').length`);
 check('exiting preview restores the chrome', restored > 0, `${restored} anchors`);
+
+// --- multi-track scene ----------------------------------------------------
+// Tracks in one scene share a master timeline; track.offset is where each sits
+// on it. That offset is the only coupling between tracks.
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '+ Add track').click()`);
+await wait(1000);
+const multi = await evaluate(`({
+  shapes: document.querySelectorAll('.gasp-shape').length,
+  paths: document.querySelectorAll('path[stroke-dasharray]').length,
+  lanes: document.querySelectorAll('[title*="drag to change its start offset"]').length,
+  bodies: new Set([...document.querySelectorAll('.gasp-fx')].map(e => e.id)).size
+})`);
+check('adding a track renders a second object', multi?.shapes === 2, JSON.stringify(multi));
+check('each track gets its own body id for its ghosts', multi?.bodies === 2, `${multi?.bodies} distinct ids`);
+check('the scrubber grows a lane per track', multi?.lanes === 2, `${multi?.lanes} lanes`);
+
+// Both objects must move on the shared master timeline while offsets are small.
+await evaluate(`document.querySelector('[aria-label="Back to start"]').click()`);
+await wait(300);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(400);
+const posA = await evaluate(`[...document.querySelectorAll('.gasp-place')].map(g => { const b = g.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y)]; })`);
+await wait(900);
+const posB = await evaluate(`[...document.querySelectorAll('.gasp-place')].map(g => { const b = g.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y)]; })`);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(200);
+const bothMoved =
+  posA?.length === 2 && posB?.length === 2 &&
+  posA.every((p, i) => Math.abs(p[0] - posB[i][0]) + Math.abs(p[1] - posB[i][1]) > 3);
+check('every track animates on the shared master timeline', bothMoved, `${JSON.stringify(posA)} -> ${JSON.stringify(posB)}`);
+
+// Offsetting a track must extend the scene: the master runs until the last
+// track finishes, so the total becomes max(existing, offset + that track).
+const durBefore2 = await evaluate(DURATION_JS);
+await evaluate(`(() => {
+  const d = [...document.querySelectorAll('aside div')].find(d => /Starts after/.test(d.textContent || '') && d.querySelector('input[type=range]'));
+  const i = d.querySelector('input[type=range]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '5');
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await wait(900);
+const durAfter = await evaluate(DURATION_JS);
+// New track is 2s of travel with no markers, so 5 + 2 = 7 beats the 4.6s original.
+check('track.offset extends the scene duration', durAfter > durBefore2 && Math.abs(durAfter - 7) < 0.3,
+  `${durBefore2}s -> ${durAfter}s (expected ~7)`);
+
+// A late track must still be painted before its offset arrives, not left blank.
+await evaluate(`document.querySelector('[aria-label="Back to start"]').click()`);
+await wait(400);
+const atZero = await evaluate(`[...document.querySelectorAll('.gasp-shape')].map(p => (p.getAttribute('d') || '').length)`);
+check('a track that starts late is still painted at t=0', Array.isArray(atZero) && atZero.length === 2 && atZero.every((l) => l > 20), JSON.stringify(atZero));
+
+// Hiding a track drops it from the scene.
+await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Hide track"]')]; b[b.length - 1].click(); })()`);
+await wait(800);
+const hidden = await evaluate(`document.querySelectorAll('.gasp-shape').length`);
+check('hiding a track removes it from the scene', hidden === 1, `${hidden} shapes`);
+await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Show track"]')]; b[b.length - 1].click(); })()`);
+await wait(800);
+
+// Back to one track so the later checks read the original scene.
+await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Delete track"]')]; b[b.length - 1].click(); })()`);
+await wait(800);
+const backToOne = await evaluate(`document.querySelectorAll('.gasp-shape').length`);
+check('deleting a track restores the single-object scene', backToOne === 1, `${backToOne} shapes`);
 
 // --- untrusted project file ----------------------------------------------
 // `asset.d` is written verbatim by load(). It must never reach the DOM as

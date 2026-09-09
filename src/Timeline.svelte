@@ -1,67 +1,90 @@
 <script>
-	import { ui, controls, activeScene } from './lib/state.svelte.js';
+	import { ui, controls, activeScene, activeTrack } from './lib/state.svelte.js';
 
 	const scene = $derived(activeScene());
+	const selected = $derived(activeTrack());
 
-	let track = $state(null);
+	let trackEl = $state(null);
 	let scrubbing = $state(false);
+	let laneDrag = $state(null);
 	let wasPlaying = false;
 
 	const duration = $derived(ui.duration || 0.001);
 	const time = $derived(ui.progress * ui.duration);
+	const lanes = $derived(ui.lanes ?? []);
 
 	/**
-	 * Stops are laid out in SECONDS. `marker.progress` is a position along the
-	 * PATH, and holds plus per-segment durations mean the two do not line up —
-	 * placing ticks by path progress is why the old scrubber never matched what
-	 * was happening on the canvas.
+	 * Lanes are laid out in SECONDS of scene time. `marker.progress` is a position
+	 * along a PATH, and holds plus per-segment durations mean the two do not line
+	 * up — placing ticks by path progress is why the old scrubber never matched
+	 * what was happening on the canvas.
 	 */
-	const ticks = $derived(
-		(ui.stops ?? [])
-			.filter((s) => !s.isStart)
-			.map((s) => ({ id: s.id, at: s.arriveAt / duration }))
-	);
+	function laneGeometry(lane) {
+		return {
+			left: (lane.offset / duration) * 100,
+			width: (lane.duration / duration) * 100,
+			ticks: lane.stops
+				.filter((s) => !s.isStart)
+				.map((s) => ({ id: s.id, at: ((lane.offset + s.arriveAt) / duration) * 100 })),
+			holds: lane.stops
+				.filter((s) => s.hold > 0)
+				.map((s) => ({
+					id: s.id,
+					left: ((lane.offset + s.arriveAt) / duration) * 100,
+					width: (s.hold / duration) * 100
+				}))
+		};
+	}
 
-	const holds = $derived(
-		(ui.stops ?? [])
-			.filter((s) => s.hold > 0)
-			.map((s) => ({ id: s.id, left: s.arriveAt / duration, width: s.hold / duration }))
-	);
-
-	function positionFrom(event) {
-		const rect = track.getBoundingClientRect();
+	function fractionFrom(event) {
+		const rect = trackEl.getBoundingClientRect();
 		return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
 	}
 
 	function beginScrub(event) {
+		if (scrubbing || laneDrag) return;
 		scrubbing = true;
 		wasPlaying = ui.isPlaying;
 		ui.isPlaying = false;
-		track.setPointerCapture(event.pointerId);
-		controls.seek?.(positionFrom(event));
+		trackEl.setPointerCapture(event.pointerId);
+		controls.seek?.(fractionFrom(event));
 	}
 
 	function moveScrub(event) {
+		if (laneDrag) {
+			// Dragging a lane body sets that track's start offset — the one piece of
+			// timing that couples tracks inside a scene.
+			const delta = (fractionFrom(event) - laneDrag.grabbedAt) * duration;
+			laneDrag.track.offset = Math.max(0, Math.round((laneDrag.from + delta) * 100) / 100);
+			return;
+		}
 		if (!scrubbing) return;
-		controls.seek?.(positionFrom(event));
+		controls.seek?.(fractionFrom(event));
 	}
 
-	function endScrub(event) {
-		if (!scrubbing) return;
-		scrubbing = false;
-		if (track.hasPointerCapture?.(event.pointerId)) track.releasePointerCapture(event.pointerId);
-		// Resuming after a scrub keeps the flow going, which matters when you are
-		// nudging timing and want to keep watching the loop.
-		if (wasPlaying) ui.isPlaying = true;
+	function endDrag(event) {
+		if (trackEl?.hasPointerCapture?.(event.pointerId)) {
+			trackEl.releasePointerCapture(event.pointerId);
+		}
+		if (scrubbing) {
+			scrubbing = false;
+			// Resuming after a scrub keeps the flow going, which matters when you are
+			// nudging timing and want to keep watching the loop.
+			if (wasPlaying) ui.isPlaying = true;
+		}
+		laneDrag = null;
+	}
+
+	function beginLaneDrag(event, lane) {
+		event.stopPropagation();
+		ui.selectedTrackId = lane.id;
+		laneDrag = { track: lane.track, from: lane.offset, grabbedAt: fractionFrom(event) };
+		trackEl.setPointerCapture(event.pointerId);
 	}
 
 	function toggle() {
 		if (!ui.isPlaying && ui.progress >= 0.999 && !scene?.loop) controls.restart?.();
 		ui.isPlaying = !ui.isPlaying;
-	}
-
-	function restart() {
-		controls.restart?.();
 	}
 
 	const atEnd = $derived(ui.progress >= 0.999 && !scene?.loop);
@@ -90,7 +113,7 @@
 			class="grid h-9 w-9 place-items-center rounded-md border border-line bg-raise text-muted transition-colors hover:text-white {atEnd
 				? 'border-accent text-accent'
 				: ''}"
-			onclick={restart}
+			onclick={() => controls.restart?.()}
 			title="Back to start"
 			aria-label="Back to start"
 		>
@@ -119,51 +142,91 @@
 		</div>
 	</div>
 
-	<div class="flex flex-col justify-center">
+	<!--
+		The ruler scrubs; the lanes below select a track and drag its offset. They
+		have to be separate targets: with a single full-width track the lane body
+		covers the whole bar, leaving nowhere to click for a scrub.
+	-->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		bind:this={trackEl}
+		class="relative flex touch-none flex-col justify-center gap-1 py-1.5 select-none"
+		onpointermove={moveScrub}
+		onpointerup={endDrag}
+		onpointercancel={endDrag}
+	>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			bind:this={track}
-			class="group relative h-10 cursor-ew-resize select-none"
+			class="relative h-4 shrink-0 cursor-ew-resize rounded-sm bg-panel-dark/80 ring-1 ring-line/70"
 			onpointerdown={beginScrub}
-			onpointermove={moveScrub}
-			onpointerup={endScrub}
-			onpointercancel={endScrub}
+			title="Drag to scrub"
+			data-scrub-ruler
 		>
-			<div class="absolute top-1/2 right-0 left-0 h-1.5 -translate-y-1/2 rounded-full bg-line">
-				<div
-					class="h-full rounded-full bg-accent"
-					style="width: {Math.min(100, ui.progress * 100)}%"
-				></div>
-			</div>
-
-			<!-- Dwell windows: the object is parked, not travelling. -->
-			{#each holds as hold (hold.id)}
-				<div
-					class="pointer-events-none absolute top-1/2 h-4 -translate-y-1/2 rounded-sm bg-danger/25 ring-1 ring-danger/40"
-					style="left: {hold.left * 100}%; width: {Math.max(0.4, hold.width * 100)}%"
-				></div>
-			{/each}
-
-			{#each ticks as tick (tick.id)}
-				<button
-					class="absolute top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform hover:scale-y-125 {ui.selectedMarkerId ===
-					tick.id
-						? 'bg-white'
-						: 'bg-danger'}"
-					style="left: {tick.at * 100}%"
-					onpointerdown={(e) => {
-						e.stopPropagation();
-						ui.selectedMarkerId = tick.id;
-					}}
-					title="Select marker"
-					aria-label="Select marker"
-				></button>
-			{/each}
-
 			<div
-				class="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-md ring-2 ring-ink transition-transform group-hover:scale-110"
-				style="left: {Math.min(100, ui.progress * 100)}%"
+				class="pointer-events-none absolute inset-y-0 left-0 rounded-l-sm bg-accent/25"
+				style="width: {Math.min(100, ui.progress * 100)}%"
 			></div>
 		</div>
+
+		{#each lanes as lane (lane.id)}
+			{@const g = laneGeometry(lane)}
+			{@const isSelected = lane.id === selected?.id}
+			<div class="relative h-5">
+				<div class="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-line/60"></div>
+
+				<!-- The lane body. Drag it sideways to set track.offset. -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="absolute top-1/2 h-4 -translate-y-1/2 cursor-grab rounded-sm border transition-colors {isSelected
+						? 'border-accent/70 bg-accent/25'
+						: 'border-line bg-raise/70 hover:border-accent/40'}"
+					style="left: {g.left}%; width: {Math.max(0.6, g.width)}%"
+					onpointerdown={(e) => beginLaneDrag(e, lane)}
+					title="{lane.name} — drag to change its start offset"
+				>
+					<span
+						class="pointer-events-none absolute inset-y-0 left-1.5 flex items-center truncate text-[9px] leading-none {isSelected
+							? 'text-white'
+							: 'text-muted'}"
+					>
+						{lane.name}
+					</span>
+				</div>
+
+				{#each g.holds as hold (hold.id)}
+					<div
+						class="pointer-events-none absolute top-1/2 h-4 -translate-y-1/2 rounded-sm bg-danger/30 ring-1 ring-danger/50"
+						style="left: {hold.left}%; width: {Math.max(0.4, hold.width)}%"
+					></div>
+				{/each}
+
+				{#each g.ticks as tick (tick.id)}
+					<button
+						class="absolute top-1/2 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform hover:scale-y-125 {ui.selectedMarkerId ===
+						tick.id
+							? 'bg-white'
+							: 'bg-danger'}"
+						style="left: {tick.at}%"
+						onpointerdown={(e) => {
+							e.stopPropagation();
+							ui.selectedTrackId = lane.id;
+							ui.selectedMarkerId = tick.id;
+						}}
+						title="Select marker"
+						aria-label="Select marker"
+					></button>
+				{/each}
+			</div>
+		{/each}
+
+		<!-- Playhead spans every lane. -->
+		<div
+			class="pointer-events-none absolute inset-y-1 w-px -translate-x-1/2 bg-white/80"
+			style="left: {Math.min(100, ui.progress * 100)}%"
+		></div>
+		<div
+			class="pointer-events-none absolute top-0 h-3 w-3 -translate-x-1/2 rounded-full bg-white shadow-md ring-2 ring-ink"
+			style="left: {Math.min(100, ui.progress * 100)}%"
+		></div>
 	</div>
 </section>

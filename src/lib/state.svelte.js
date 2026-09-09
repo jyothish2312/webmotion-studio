@@ -12,6 +12,7 @@ export const ui = $state({
 	selectedTrackId: null,
 	selectedMarkerId: null,
 	selectedPointIndex: null,
+	renamingTrackId: null,
 
 	// editing
 	mode: 'edit',
@@ -21,7 +22,8 @@ export const ui = $state({
 	isPlaying: false,
 	progress: 0,
 	duration: 0,
-	stops: [],
+	/** Per-track scrubber lanes, produced by the scene renderer. */
+	lanes: [],
 	engineError: null
 });
 
@@ -103,6 +105,37 @@ export function load(data) {
 
 	hydrateAssets();
 	resetSelection();
+}
+
+/** Adds a track to the active layout and selects it. */
+export function addTrack(track) {
+	const layout = activeLayout();
+	if (!layout) return null;
+	layout.tracks = [...layout.tracks, track];
+	ui.selectedTrackId = track.id;
+	ui.selectedMarkerId = null;
+	ui.selectedPointIndex = null;
+	return track;
+}
+
+export function removeTrack(id) {
+	const layout = activeLayout();
+	if (!layout || layout.tracks.length <= 1) return;
+	layout.tracks = layout.tracks.filter((t) => t.id !== id);
+	if (ui.selectedTrackId === id) ui.selectedTrackId = layout.tracks[0].id;
+	ui.selectedMarkerId = null;
+}
+
+export function moveTrack(id, delta) {
+	const layout = activeLayout();
+	if (!layout) return;
+	const from = layout.tracks.findIndex((t) => t.id === id);
+	const to = from + delta;
+	if (from < 0 || to < 0 || to >= layout.tracks.length) return;
+	const next = [...layout.tracks];
+	const [moved] = next.splice(from, 1);
+	next.splice(to, 0, moved);
+	layout.tracks = next;
 }
 
 export function resetSelection() {

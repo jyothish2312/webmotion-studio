@@ -7,23 +7,35 @@
 		hydrateAssets,
 		activeScene,
 		activeLayout,
-		activeTrack
+		activeTrack,
+		visibleTracks
 	} from './lib/state.svelte.js';
+	import TrackObject from './TrackObject.svelte';
 	import { makeMarker, makePoint } from './lib/model.js';
 	import { buildPathD, pointAt, projectToPath, clamp01 } from './lib/path.js';
-	import { createEngine } from './lib/engine.js';
+	import { createSceneRenderer } from './lib/engine.js';
 
 	let host = $state(null);
 	let svgEl = $state(null);
-	let pathEl = $state(null);
-	let placerEl = $state(null);
-	let lifeEl = $state(null);
-	let fxEl = $state(null);
-	let sizeEl = $state(null);
-	let orientEl = $state(null);
-	let normEl = $state(null);
-	let morphEl = $state(null);
-	let ghostEls = $state([]);
+	/** Per-track element refs, keyed by track id. */
+	let pathEls = $state({});
+
+	/**
+	 * Object refs live in a PLAIN object with a separate version counter.
+	 *
+	 * Holding them in $state and spreading on write (`refs = {...refs, [id]: r}`)
+	 * made the reporting child subscribe to the very state it was writing, and
+	 * Svelte bailed with effect_update_depth_exceeded. Writing the plain object
+	 * and bumping a counter gives the parent something to depend on without the
+	 * child ever reading it.
+	 */
+	const trackRefs = {};
+	let refsVersion = $state(0);
+
+	function receiveRefs(id, refs) {
+		trackRefs[id] = refs;
+		refsVersion++;
+	}
 
 	let engine = null;
 	let ready = $state(false);
@@ -42,6 +54,10 @@
 	const scene = $derived(activeScene());
 	const layout = $derived(activeLayout());
 	const track = $derived(activeTrack());
+	const tracks = $derived(visibleTracks());
+
+	/** The selected track's own path element — what marker maths measures. */
+	const pathEl = $derived(track ? pathEls[track.id] : null);
 
 	/**
 	 * Preview mode drops the editor's free viewBox and frames the layout exactly,
@@ -55,13 +71,9 @@
 	);
 	const aspect = $derived(ui.preview && layout ? `xMidYMid ${layout.fit}` : 'none');
 
-	const pathD = $derived(
-		track ? buildPathD(track.points, track.settings.closedPath, track.settings.loopTension) : ''
-	);
-	const ghostCount = $derived(
-		track?.settings.trail.enabled ? Math.max(0, track.settings.trail.count) : 0
-	);
-	const ghostSlots = $derived(Array.from({ length: ghostCount }, (_, i) => i));
+	const trackPathD = (t) =>
+		buildPathD(t.points, t.settings.closedPath, t.settings.loopTension);
+	const pathD = $derived(track ? trackPathD(track) : '');
 
 	let markerPoints = $state([]);
 	let drag = $state(null);
@@ -70,7 +82,7 @@
 
 	onMount(() => {
 		hydrateAssets();
-		engine = createEngine();
+		engine = createSceneRenderer();
 		engine.onFrame((progress) => {
 			ui.progress = progress;
 		});
@@ -120,37 +132,38 @@
 	}
 
 	$effect(() => {
-		const d = pathD;
-		trackDeep(track);
-		trackDeep(scene?.loop);
+		trackDeep(layout);
 		const loopKey = `${scene?.loop}|${scene?.yoyo}`;
 		// `__measured` is the hydration signature: path data plus every adjust
 		// field. Keying on `d` alone missed orientation edits entirely.
 		const assetKey = project.assets.map((a) => a.id + a.__measured).join('|');
-		const ghosts = ghostEls.slice(0, ghostCount);
 
-		if (!ready || !engine || !pathEl || !d || !track || !scene || !assetKey || !loopKey) return;
+		// One refs bundle per visible track. Bail until every one has mounted,
+		// so a half-built scene never reaches the renderer.
+		refsVersion;
+		const refsByTrack = {};
+		let ready_ = ready && engine && scene && layout && assetKey && loopKey;
+		for (const t of tracks) {
+			const refs = trackRefs[t.id];
+			const path = pathEls[t.id];
+			if (!refs?.placer || !path) {
+				ready_ = false;
+				break;
+			}
+			refsByTrack[t.id] = { ...refs, path };
+		}
+		if (!ready_) return;
 
 		untrack(() => {
 			try {
 				const result = engine.build(
-					{
-						path: pathEl,
-						placer: placerEl,
-						life: lifeEl,
-						fx: fxEl,
-						size: sizeEl,
-						orient: orientEl,
-						norm: normEl,
-						morph: morphEl,
-						ghosts
-					},
-					{ track, assets: project.assets, scene },
+					refsByTrack,
+					{ layout, scene, assets: project.assets },
 					{ restore: ui.progress, playing: ui.isPlaying }
 				);
 				if (result) {
 					ui.duration = result.duration;
-					ui.stops = result.stops;
+					ui.lanes = result.lanes;
 					ui.engineError = null;
 				}
 			} catch (err) {
@@ -206,8 +219,18 @@
 		}
 		if (event.button !== 0) return;
 
-		if (!track) return;
 		const el = event.target;
+
+		// Clicking another track's ghosted path switches to it.
+		const otherTrack = el.dataset?.selectTrack;
+		if (otherTrack) {
+			ui.selectedTrackId = otherTrack;
+			ui.selectedMarkerId = null;
+			ui.selectedPointIndex = null;
+			return;
+		}
+
+		if (!track) return;
 		const type = el.dataset?.type;
 		const index = Number(el.dataset?.index);
 
@@ -412,19 +435,41 @@
 			/>
 		{/if}
 
-		<!-- Motion path: a soft halo under the dashed guide line. -->
-		<path d={pathD} fill="none" stroke="rgba(88,166,255,0.18)" stroke-width={9 * unit} stroke-linecap="round" />
-		<path
-			bind:this={pathEl}
-			d={pathD}
-			fill="none"
-			stroke="#58a6ff"
-			stroke-width={2 * unit}
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			stroke-dasharray="{7 * unit} {7 * unit}"
-			opacity="0.85"
-		/>
+		{/if}
+
+		<!--
+			One path per visible track. These stay in the DOM even in preview: they
+			are the geometry MotionPathPlugin measures, not just a guide. Only their
+			stroke is hidden.
+		-->
+		{#each tracks as t (t.id)}
+			{@const isSelected = t.id === track?.id}
+			{@const d = trackPathD(t)}
+			{#if !ui.preview && isSelected}
+				<path
+					{d}
+					fill="none"
+					stroke="rgba(88,166,255,0.18)"
+					stroke-width={9 * unit}
+					stroke-linecap="round"
+				/>
+			{/if}
+			<path
+				bind:this={pathEls[t.id]}
+				{d}
+				fill="none"
+				stroke={ui.preview ? 'none' : isSelected ? '#58a6ff' : '#3f4b5b'}
+				stroke-width={(isSelected ? 2 : 1.4) * unit}
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				stroke-dasharray="{7 * unit} {7 * unit}"
+				opacity={isSelected ? 0.85 : 0.5}
+				class={isSelected ? '' : 'cursor-pointer'}
+				data-select-track={isSelected ? null : t.id}
+			/>
+		{/each}
+
+		{#if !ui.preview}
 
 		<!-- Handles -->
 		{#each track?.points ?? [] as point, i (point.id)}
@@ -530,44 +575,9 @@
 
 		{/if}
 
-		<!-- Animated object. Each wrapper owns exactly one concern so GSAP never
-		     has two things fighting over the same transform. -->
-		<g class="pointer-events-none">
-			{#each ghostSlots as i (i)}
-				<g
-					bind:this={ghostEls[i]}
-					opacity={(track?.settings.trail.opacity ?? 0.3) * (1 - i / (ghostCount + 1))}
-				>
-					<use href="#gasp-body" />
-				</g>
-			{/each}
-
-			<!-- Class names match the exported markup, so what you see here and what
-			     the generated code drives are the same structure. -->
-			<g bind:this={placerEl} class="gasp-place">
-				<g bind:this={lifeEl} class="gasp-life">
-					<g bind:this={fxEl} id="gasp-body" class="gasp-fx">
-						<g bind:this={sizeEl} class="gasp-size">
-							<g bind:this={orientEl} class="gasp-orient">
-								<g bind:this={normEl} class="gasp-norm">
-									<path
-										bind:this={morphEl}
-										class="gasp-shape"
-										d=""
-										fill="none"
-										stroke="#e6edf3"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										vector-effect="non-scaling-stroke"
-									/>
-								</g>
-							</g>
-						</g>
-					</g>
-				</g>
-			</g>
-		</g>
+		{#each tracks as t (t.id)}
+			<TrackObject track={t} onrefs={receiveRefs} />
+		{/each}
 	</svg>
 
 	{#if !ui.preview}

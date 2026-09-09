@@ -102,11 +102,45 @@ function sameOrient(a, b) {
 }
 
 /**
- * Owns every GSAP object on screen. Rebuilt wholesale whenever the project
- * changes — cheap, and far easier to reason about than patching a live
- * timeline, which is where most of the drift and ghost-tween bugs came from.
+ * Lays a scene's tracks out in absolute scene time.
+ *
+ * Track times come out of planStops() relative to the track's own start; the
+ * scene shifts each by `track.offset`. That offset is the ONLY coupling between
+ * tracks, and it is the reason they share a timeline at all: the crate lifts
+ * exactly when the drone arrives, so you scrub them together.
+ *
+ * Pure function. Shared by the scene renderer, the scrubber lanes and the export.
  */
-export function createEngine() {
+export function planScene(layout, { onlyVisible = true } = {}) {
+	const all = layout?.tracks ?? [];
+	const solo = all.some((t) => t.solo);
+	const tracks = onlyVisible ? all.filter((t) => (solo ? t.solo && !t.hidden : !t.hidden)) : all;
+
+	const lanes = tracks.map((track) => {
+		const { stops, duration } = planStops(track);
+		const offset = Math.max(0, Number(track.offset) || 0);
+		return {
+			id: track.id,
+			name: track.name,
+			track,
+			offset,
+			stops,
+			duration,
+			endsAt: offset + duration
+		};
+	});
+
+	return { lanes, duration: lanes.reduce((max, l) => Math.max(max, l.endsAt), 0) };
+}
+
+/**
+ * Renders one track: its motion path, its stops, its ghosts and its idle life.
+ *
+ * The returned `timeline` is finite and starts at zero — the scene decides where
+ * it sits. Idle life is deliberately NOT on that timeline: it is wall-clock
+ * secondary motion, not authored keyframes, so it must not be scrubbed.
+ */
+export function createTrackRenderer() {
 	let refs = null;
 	let timeline = null;
 	let placer = null;
@@ -118,13 +152,7 @@ export function createEngine() {
 	const proxy = { p: 0 };
 	let history = [];
 	let recording = false;
-	let onFrame = null;
 
-	/**
-	 * Pushes the current path position onto the visible objects. The lead object
-	 * reads `proxy.p` directly; each ghost reads an older frame, so the trail
-	 * bunches up when the object slows and stretches when it accelerates.
-	 */
 	function frame() {
 		const p = clamp01(proxy.p);
 		if (placer) placer.progress(p);
@@ -140,8 +168,6 @@ export function createEngine() {
 				ghosts[i].progress(clamp01(history[index] ?? p));
 			}
 		}
-
-		onFrame?.(timeline ? timeline.progress() : 0, timeline ? timeline.time() : 0, plan.duration);
 	}
 
 	function resetHistory() {
@@ -180,18 +206,51 @@ export function createEngine() {
 		life = [];
 	}
 
-	function build(nextRefs, { track, assets, scene }, { restore = 0, playing = false } = {}) {
+	function buildLife(track) {
+		const cfg = track.settings.life;
+		if (!cfg?.enabled || !refs.life) return;
+
+		const loop = (from, to) =>
+			life.push(
+				gsap.fromTo(refs.life, from, {
+					...to,
+					ease: 'sine.inOut',
+					yoyo: true,
+					repeat: -1,
+					paused: true
+				})
+			);
+
+		// Three periods rather than one: they never line up the same way twice,
+		// which is most of the difference between alive and clockwork.
+		if (cfg.bob > 0) {
+			loop({ y: cfg.bob / 2 }, { y: -cfg.bob / 2, duration: Math.max(0.1, cfg.bobSpeed) / 2 });
+		}
+		if (cfg.sway > 0) {
+			loop(
+				{ rotation: -cfg.sway / 2 },
+				{ rotation: cfg.sway / 2, duration: Math.max(0.1, cfg.swaySpeed) / 2 }
+			);
+		}
+		if (cfg.pulse > 0) {
+			loop(
+				{ scale: 1 - cfg.pulse },
+				{ scale: 1 + cfg.pulse, duration: Math.max(0.1, cfg.pulseSpeed) / 2 }
+			);
+		}
+	}
+
+	function build(nextRefs, { track, assets }) {
 		refs = nextRefs;
 		if (!refs?.path || !refs.placer || !refs.morph) return null;
 
 		// Everything that can bail out is resolved BEFORE teardown. Returning after
-		// teardown would leave the engine dead with no timeline and no error, and
-		// the caller would keep showing a stale duration.
+		// teardown would leave the renderer dead with no timeline and no error.
 		const s = track.settings;
 		const byId = (id) => assets.find((a) => a.id === id);
 		const startAsset = byId(track.startingAssetId) ?? assets[0];
 		if (!startAsset?.norm) {
-			throw new Error('Starting shape has no measurements yet — asset not hydrated.');
+			throw new Error('Track "' + track.name + '": starting shape has no measurements yet.');
 		}
 
 		teardown();
@@ -209,38 +268,29 @@ export function createEngine() {
 		});
 		resetHistory();
 
-		timeline = gsap.timeline({
-			paused: true,
-			repeat: scene.loop ? -1 : 0,
-			yoyo: scene.loop && scene.yoyo,
-			onUpdate: frame
-		});
+		timeline = gsap.timeline({ paused: true, onUpdate: frame });
 
 		// Baseline, applied twice on purpose.
 		//
 		// Imperatively first: a paused timeline sitting at time 0 has nothing to
 		// re-render, so its own t=0 children never fire and the very first frame
-		// would paint an empty <path> at the origin.
+		// would paint an empty <path> at the origin. A track that starts late has
+		// no rendered frame at all until its offset arrives, so this matters more
+		// with several tracks than it did with one.
 		//
 		// Then as timeline children as well, so scrubbing backwards past the first
 		// morph restores the starting shape instead of leaving the last one on.
-		const baseline = () => {
-			gsap.set(refs.morph, { attr: { d: startAsset.d } });
-			gsap.set(refs.norm, { ...startAsset.norm });
-			// Pin the pivot to the origin once. The default origin is the bounding
-			// box centre, which moves as the shape morphs; normalisation has already
-			// put the shape's centre on the origin, so this keeps the pivot stable.
-			gsap.set(refs.orient, { ...startAsset.orient, svgOrigin: '0 0' });
-			gsap.set(refs.size, { scale: s.objectSize / 100 });
-			gsap.set(refs.fx, { attr: { class: 'gasp-fx' } });
-			gsap.set(refs.fx, transformOf(s.startState));
-			gsap.set(refs.morph, paintOf(s.startState));
-			// Killing a tween leaves its last rendered values on the element, so any
-			// wrapper whose driving tweens might not be rebuilt has to be reset by
-			// hand — otherwise turning idle life off freezes the object mid-bob.
-			if (refs.life) gsap.set(refs.life, { x: 0, y: 0, rotation: 0, scale: 1 });
-		};
-		baseline();
+		gsap.set(refs.morph, { attr: { d: startAsset.d } });
+		gsap.set(refs.norm, { ...startAsset.norm });
+		gsap.set(refs.orient, { ...startAsset.orient, svgOrigin: '0 0' });
+		gsap.set(refs.size, { scale: s.objectSize / 100 });
+		gsap.set(refs.fx, { attr: { class: 'gasp-fx' } });
+		gsap.set(refs.fx, transformOf(s.startState));
+		gsap.set(refs.morph, paintOf(s.startState));
+		// Killing a tween leaves its last rendered values on the element, so any
+		// wrapper whose driving tweens might not be rebuilt has to be reset by
+		// hand — otherwise turning idle life off freezes the object mid-bob.
+		if (refs.life) gsap.set(refs.life, { x: 0, y: 0, rotation: 0, scale: 1 });
 
 		timeline.set(refs.morph, { attr: { d: startAsset.d } }, 0);
 		timeline.set(refs.norm, { ...startAsset.norm }, 0);
@@ -257,7 +307,7 @@ export function createEngine() {
 			// --- Arrival: snap to this stop's look and freeze it for the hold.
 			// The base class has to be re-stated: setting `class` replaces the whole
 			// attribute, so omitting it would strip the element's own identity.
-			timeline.set(refs.fx, { attr: { class: `gasp-fx ${stop.classes}`.trim() } }, stop.arriveAt);
+			timeline.set(refs.fx, { attr: { class: ('gasp-fx ' + stop.classes).trim() } }, stop.arriveAt);
 			timeline.set(refs.fx, transformOf(stop.state), stop.arriveAt);
 			timeline.set(refs.morph, paintOf(stop.state), stop.arriveAt);
 			timeline.set(proxy, { p: stop.from }, stop.arriveAt);
@@ -330,109 +380,148 @@ export function createEngine() {
 
 		buildLife(track);
 
-		timeline.pause(0);
-		frame();
-		if (restore > 0) {
-			timeline.progress(clamp01(restore));
-			resetHistory();
-			frame();
-		}
-		setPlaying(playing);
-
-		// A morph can legitimately outrun the stop it belongs to (a long 'custom'
-		// morph on a short hold), which makes the real timeline longer than the sum
-		// of holds and travels. Report the longer of the two, or the scrubber's
+		// A morph can legitimately outrun the stop it belongs to (a long custom
+		// morph on a short hold), so the real timeline can be longer than the sum
+		// of holds and travels. Report the longer of the two, or the scrubber
 		// readout and its marker ticks are measured against the wrong total.
 		plan.duration = Math.max(plan.duration, timeline.duration());
+
+		timeline.pause(0);
+		frame();
 		return { stops: plan.stops, duration: plan.duration };
 	}
 
-	/**
-	 * Continuous secondary motion, deliberately kept OFF the scrub timeline: it
-	 * is wall-clock idle movement, not authored keyframes. Three loops at
-	 * different periods beat one, because they never line up twice the same way.
-	 */
-	function buildLife(track) {
-		const cfg = track.settings.life;
-		if (!cfg?.enabled || !refs.life) return;
+	return {
+		build,
+		frame,
+		resetHistory,
+		get timeline() {
+			return timeline;
+		},
+		get duration() {
+			return plan.duration;
+		},
+		setRecording(on) {
+			recording = on;
+			if (!on) resetHistory();
+		},
+		setLifePlaying(playing) {
+			life.forEach((t) => (playing ? t.play() : t.pause()));
+		},
+		destroy: teardown
+	};
+}
 
-		if (cfg.bob > 0) {
-			life.push(
-				gsap.fromTo(
-					refs.life,
-					{ y: cfg.bob / 2 },
-					{
-						y: -cfg.bob / 2,
-						duration: Math.max(0.1, cfg.bobSpeed) / 2,
-						ease: 'sine.inOut',
-						yoyo: true,
-						repeat: -1,
-						paused: true
-					}
-				)
-			);
+/**
+ * Composes a scene: one master timeline with every visible track added at its
+ * own offset.
+ *
+ * Tracks inside a scene DO share a timeline, because their timing relationship
+ * is the reason they are in the same scene. Separate scenes on a page do not —
+ * they get independent timelines and independent triggers.
+ */
+export function createSceneRenderer() {
+	let master = null;
+	const renderers = new Map();
+	let plan = { lanes: [], duration: 0 };
+	let onFrame = null;
+
+	function teardown() {
+		master?.kill();
+		master = null;
+		renderers.forEach((r) => r.destroy());
+		renderers.clear();
+	}
+
+	function report() {
+		onFrame?.(master ? master.progress() : 0, master ? master.time() : 0, plan.duration);
+	}
+
+	function build(refsByTrack, { layout, scene, assets }, { restore = 0, playing = false } = {}) {
+		if (!layout || !scene) return null;
+
+		const next = planScene(layout);
+
+		// Stage every track before tearing anything down: a track whose elements
+		// have not mounted yet must not leave the scene half-built.
+		const staged = [];
+		for (const lane of next.lanes) {
+			const refs = refsByTrack[lane.id];
+			if (!refs?.path || !refs.placer || !refs.morph) return null;
+			staged.push({ lane, refs });
 		}
-		if (cfg.sway > 0) {
-			life.push(
-				gsap.fromTo(
-					refs.life,
-					{ rotation: -cfg.sway / 2 },
-					{
-						rotation: cfg.sway / 2,
-						duration: Math.max(0.1, cfg.swaySpeed) / 2,
-						ease: 'sine.inOut',
-						yoyo: true,
-						repeat: -1,
-						paused: true
-					}
-				)
-			);
+
+		teardown();
+		plan = next;
+
+		master = gsap.timeline({
+			paused: true,
+			repeat: scene.loop ? -1 : 0,
+			yoyo: scene.loop && scene.yoyo,
+			onUpdate: report
+		});
+
+		for (const { lane, refs } of staged) {
+			const renderer = createTrackRenderer();
+			const result = renderer.build(refs, { track: lane.track, assets });
+			if (!result) continue;
+			renderers.set(lane.id, renderer);
+			lane.duration = result.duration;
+			lane.stops = result.stops;
+			lane.endsAt = lane.offset + result.duration;
+			master.add(renderer.timeline, lane.offset);
+			// The track timeline is built paused so it can be rendered at frame 0
+			// before it joins the scene. A paused CHILD stays frozen even when its
+			// parent plays, so hand control back to the master once it is in.
+			renderer.timeline.paused(false);
 		}
-		if (cfg.pulse > 0) {
-			life.push(
-				gsap.fromTo(
-					refs.life,
-					{ scale: 1 - cfg.pulse },
-					{
-						scale: 1 + cfg.pulse,
-						duration: Math.max(0.1, cfg.pulseSpeed) / 2,
-						ease: 'sine.inOut',
-						yoyo: true,
-						repeat: -1,
-						paused: true
-					}
-				)
-			);
-		}
+
+		plan.duration = plan.lanes.reduce((max, l) => Math.max(max, l.endsAt), 0);
+
+		master.pause(0);
+		if (restore > 0) master.progress(clamp01(restore));
+		setPlaying(playing);
+		report();
+
+		return { lanes: plan.lanes, duration: plan.duration };
 	}
 
 	function setPlaying(playing) {
-		recording = playing;
-		if (!playing) resetHistory();
-		if (timeline) playing ? timeline.play() : timeline.pause();
-		life.forEach((t) => (playing ? t.play() : t.pause()));
+		renderers.forEach((r) => {
+			r.setRecording(playing);
+			r.setLifePlaying(playing);
+		});
+		if (master) playing ? master.play() : master.pause();
+	}
+
+	/** Re-push the current frame to every track after a seek. */
+	function refresh() {
+		renderers.forEach((r) => {
+			r.resetHistory();
+			r.frame();
+		});
 	}
 
 	return {
 		build,
 		setPlaying,
 		seek(progress) {
-			if (!timeline) return;
-			timeline.progress(clamp01(progress));
-			resetHistory();
-			frame();
+			if (!master) return;
+			master.progress(clamp01(progress));
+			refresh();
+			report();
 		},
 		restart() {
-			if (!timeline) return;
-			timeline.progress(0);
-			resetHistory();
-			frame();
+			if (!master) return;
+			master.progress(0);
+			refresh();
+			report();
 		},
 		get duration() {
 			return plan.duration;
 		},
-		get stops() {
-			return plan.stops;
+		get lanes() {
+			return plan.lanes;
 		},
 		onFrame(fn) {
 			onFrame = fn;
