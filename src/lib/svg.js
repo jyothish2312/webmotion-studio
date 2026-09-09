@@ -56,9 +56,29 @@ export function hydrateAsset(asset) {
 }
 
 /**
+ * Rewrites a `d` string as absolute cubic beziers.
+ *
+ * SVG's "a leading relative `m` counts as absolute" rule only holds while that
+ * `m` is the FIRST command of its path. The moment several `d` strings are
+ * concatenated, every subpath after the first is measured from the previous
+ * path's end point and the artwork flies apart — which is exactly the
+ * "deconstructed on upload" a multi-<path> icon shows. Normalising each path
+ * to absolutes first makes the join safe; it also turns arcs into beziers,
+ * which morph far better than arcs do.
+ */
+export function absolutizePath(d) {
+	try {
+		const out = MorphSVGPlugin.rawPathToString(MorphSVGPlugin.stringToRawPath(d));
+		return out && out.length > 2 ? out : d;
+	} catch {
+		return d; // a possibly-wrong path still beats dropping it
+	}
+}
+
+/**
  * Pulls a single morphable path out of an uploaded file. Primitive shapes
- * (rect/circle/polygon/...) are converted rather than rejected, which is why
- * the old "No <path> element found" dead end is gone.
+ * (rect/circle/polygon/...) are converted rather than rejected, and every
+ * subpath is absolutised before being joined.
  */
 export function parseSvgFile(text, fallbackName = 'asset') {
 	const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
@@ -66,6 +86,12 @@ export function parseSvgFile(text, fallbackName = 'asset') {
 
 	const root = doc.querySelector('svg');
 	if (!root) throw new Error('No <svg> root element found.');
+
+	if (root.querySelector('[transform]')) {
+		// Element transforms are not baked into `d`, so the shape would land in
+		// the wrong place. Warn rather than silently misplace it.
+		console.warn('[gasp-tool] SVG has element transforms — flatten them in your editor first.');
+	}
 
 	const primitives = root.querySelectorAll('rect, circle, ellipse, line, polyline, polygon');
 	if (primitives.length) {
@@ -79,6 +105,7 @@ export function parseSvgFile(text, fallbackName = 'asset') {
 	const d = Array.from(root.querySelectorAll('path'))
 		.map((p) => p.getAttribute('d'))
 		.filter(Boolean)
+		.map(absolutizePath)
 		.join(' ')
 		.trim();
 
