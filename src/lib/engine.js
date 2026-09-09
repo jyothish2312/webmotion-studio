@@ -6,7 +6,7 @@ import { clamp01 } from './path.js';
 gsap.registerPlugin(MotionPathPlugin, MorphSVGPlugin);
 
 /**
- * Turns the project into an ordered list of stops with absolute times.
+ * Turns one track into an ordered list of stops with absolute times.
  *
  * A stop is "arrive -> hold -> travel to the next stop". Marker positions are
  * expressed along the PATH (0..1 of its length) while the timeline runs in
@@ -15,10 +15,13 @@ gsap.registerPlugin(MotionPathPlugin, MorphSVGPlugin);
  * scrubber, the code export) must go through here rather than reusing
  * `marker.progress` directly.
  *
+ * Times are relative to the track's own start; the scene applies `track.offset`
+ * when it adds the track to the master timeline.
+ *
  * Pure function: no DOM, no GSAP. Shared by the engine and the code export.
  */
-export function planStops(project) {
-	const s = project.settings;
+export function planStops(track) {
+	const s = track.settings;
 
 	const nodes = [
 		{
@@ -33,7 +36,7 @@ export function planStops(project) {
 			morphType: 'hold',
 			morphDuration: 0
 		},
-		...project.markers.filter((m) => m.progress > 0).sort((a, b) => a.progress - b.progress)
+		...track.markers.filter((m) => m.progress > 0).sort((a, b) => a.progress - b.progress)
 	];
 
 	const stops = [];
@@ -140,8 +143,8 @@ export function createEngine() {
 		tween.progress(0);
 	}
 
-	function motionPathFor(element, project) {
-		const s = project.settings;
+	function motionPathFor(element, track) {
+		const s = track.settings;
 		return gsap.to(element, {
 			duration: 1,
 			ease: 'none',
@@ -166,31 +169,30 @@ export function createEngine() {
 		life = [];
 	}
 
-	function build(nextRefs, project, { restore = 0, playing = false } = {}) {
+	function build(nextRefs, { track, assets, scene }, { restore = 0, playing = false } = {}) {
 		refs = nextRefs;
 		if (!refs?.path || !refs.placer || !refs.morph) return null;
 
 		// Everything that can bail out is resolved BEFORE teardown. Returning after
 		// teardown would leave the engine dead with no timeline and no error, and
 		// the caller would keep showing a stale duration.
-		const s = project.settings;
-		const assets = project.assets;
+		const s = track.settings;
 		const byId = (id) => assets.find((a) => a.id === id);
-		const startAsset = byId(s.startingAssetId) ?? assets[0];
+		const startAsset = byId(track.startingAssetId) ?? assets[0];
 		if (!startAsset?.norm) {
 			throw new Error('Starting shape has no measurements yet — asset not hydrated.');
 		}
 
 		teardown();
 
-		plan = planStops(project);
+		plan = planStops(track);
 		trail = s.trail;
 
-		placer = motionPathFor(refs.placer, project);
+		placer = motionPathFor(refs.placer, track);
 		seedTween(placer);
 
 		ghosts = (refs.ghosts ?? []).filter(Boolean).map((el) => {
-			const tween = motionPathFor(el, project);
+			const tween = motionPathFor(el, track);
 			seedTween(tween);
 			return tween;
 		});
@@ -198,8 +200,8 @@ export function createEngine() {
 
 		timeline = gsap.timeline({
 			paused: true,
-			repeat: s.loop ? -1 : 0,
-			yoyo: s.loop && s.yoyo,
+			repeat: scene.loop ? -1 : 0,
+			yoyo: scene.loop && scene.yoyo,
 			onUpdate: frame
 		});
 
@@ -295,7 +297,7 @@ export function createEngine() {
 			);
 		}
 
-		buildLife(project);
+		buildLife(track);
 
 		timeline.pause(0);
 		frame();
@@ -319,8 +321,8 @@ export function createEngine() {
 	 * is wall-clock idle movement, not authored keyframes. Three loops at
 	 * different periods beat one, because they never line up twice the same way.
 	 */
-	function buildLife(project) {
-		const cfg = project.settings.life;
+	function buildLife(track) {
+		const cfg = track.settings.life;
 		if (!cfg?.enabled || !refs.life) return;
 
 		if (cfg.bob > 0) {

@@ -4,10 +4,16 @@
 	import Inspector from './Inspector.svelte';
 	import AssetPanel from './AssetPanel.svelte';
 	import ExportDialog from './ExportDialog.svelte';
-	import { project, serialize, load } from './lib/state.svelte.js';
+	import { project, serialize, load, hydrateAssets, resetSelection } from './lib/state.svelte.js';
+	import { onMount } from 'svelte';
 
 	let showExport = $state(false);
 	let importError = $state(null);
+
+	onMount(() => {
+		hydrateAssets();
+		resetSelection();
+	});
 
 	function exportJson() {
 		const blob = new Blob([JSON.stringify(serialize(), null, 2)], { type: 'application/json' });

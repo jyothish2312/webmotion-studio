@@ -1,12 +1,21 @@
 <script>
-	import { project, ui, EASES, selectedMarker } from './lib/state.svelte.js';
+	import {
+		project,
+		ui,
+		EASES,
+		selectedMarker,
+		activeScene,
+		activeTrack
+	} from './lib/state.svelte.js';
 	import Section from './ui/Section.svelte';
 	import Slider from './ui/Slider.svelte';
 	import Toggle from './ui/Toggle.svelte';
 	import LookEditor from './ui/LookEditor.svelte';
 
 	const marker = $derived(selectedMarker());
-	const settings = $derived(project.settings);
+	const scene = $derived(activeScene());
+	const track = $derived(activeTrack());
+	const settings = $derived(track?.settings ?? null);
 
 	const MORPH_WHEN = [
 		{ value: 'hold', label: 'During the hold — the pickup' },
@@ -15,7 +24,8 @@
 	];
 
 	function removeMarker() {
-		project.markers = project.markers.filter((m) => m.id !== ui.selectedMarkerId);
+		if (!track) return;
+		track.markers = track.markers.filter((m) => m.id !== ui.selectedMarkerId);
 		ui.selectedMarkerId = null;
 	}
 </script>
@@ -133,11 +143,11 @@
 				</p>
 			</label>
 		</Section>
-	{:else}
+	{:else if track && scene}
 		<Section title="Object">
 			<label class="mb-3 block">
 				<span class="field-label">Starting shape</span>
-				<select bind:value={settings.startingAssetId} class="field">
+				<select bind:value={track.startingAssetId} class="field">
 					{#each project.assets as asset (asset.id)}
 						<option value={asset.id}>{asset.name}</option>
 					{/each}
@@ -188,11 +198,11 @@
 					decimals={1}
 				/>
 			{/if}
-			<Toggle label="Loop forever" bind:checked={settings.loop} />
-			{#if settings.loop}
+			<Toggle label="Loop forever" bind:checked={scene.loop} />
+			{#if scene.loop}
 				<Toggle
 					label="Ping-pong"
-					bind:checked={settings.yoyo}
+					bind:checked={scene.yoyo}
 					hint="Play forwards then backwards instead of jumping back to the start."
 				/>
 			{/if}

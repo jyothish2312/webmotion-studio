@@ -1,6 +1,15 @@
 <script>
 	import { onMount, untrack } from 'svelte';
-	import { project, ui, controls, makeMarker, hydrateAssets } from './lib/state.svelte.js';
+	import {
+		project,
+		ui,
+		controls,
+		hydrateAssets,
+		activeScene,
+		activeLayout,
+		activeTrack
+	} from './lib/state.svelte.js';
+	import { makeMarker, makePoint } from './lib/model.js';
 	import { buildPathD, pointAt, projectToPath, clamp01 } from './lib/path.js';
 	import { createEngine } from './lib/engine.js';
 
@@ -29,11 +38,15 @@
 	/** SVG units per CSS pixel — handles stay the same on-screen size at any zoom. */
 	const unit = $derived(boxW > 0 ? view.w / boxW : 1);
 
+	const scene = $derived(activeScene());
+	const layout = $derived(activeLayout());
+	const track = $derived(activeTrack());
+
 	const pathD = $derived(
-		buildPathD(project.points, project.settings.closedPath, project.settings.loopTension)
+		track ? buildPathD(track.points, track.settings.closedPath, track.settings.loopTension) : ''
 	);
 	const ghostCount = $derived(
-		project.settings.trail.enabled ? Math.max(0, project.settings.trail.count) : 0
+		track?.settings.trail.enabled ? Math.max(0, track.settings.trail.count) : 0
 	);
 	const ghostSlots = $derived(Array.from({ length: ghostCount }, (_, i) => i));
 
@@ -80,21 +93,28 @@
 	// update that applies the new `d` — which is exactly when $effect fires.
 	$effect(() => {
 		const d = pathD;
-		const positions = project.markers.map((m) => m.progress);
+		const positions = track ? track.markers.map((m) => m.progress) : [];
 		if (!pathEl || !d) return;
 		markerPoints = positions.map((p) => pointAt(pathEl, p));
 	});
 
-	// Rebuild the whole animation whenever the project changes. Deep-reading via
-	// $state.snapshot subscribes to every nested field, so nothing goes stale.
+	// Rebuild the whole animation whenever the project changes. Reading every
+	// nested field is what subscribes to it; `trackDeep` walks the object without
+	// allocating, where $state.snapshot would deep-clone on every drag frame.
+	function trackDeep(value, depth = 0) {
+		if (depth > 6 || !value || typeof value !== 'object') return;
+		for (const key in value) trackDeep(value[key], depth + 1);
+	}
+
 	$effect(() => {
 		const d = pathD;
-		$state.snapshot(project.markers);
-		$state.snapshot(project.settings);
+		trackDeep(track);
+		trackDeep(scene?.loop);
+		const loopKey = `${scene?.loop}|${scene?.yoyo}`;
 		const assetKey = project.assets.map((a) => a.id + a.d).join('|');
 		const ghosts = ghostEls.slice(0, ghostCount);
 
-		if (!ready || !engine || !pathEl || !d || !assetKey) return;
+		if (!ready || !engine || !pathEl || !d || !track || !scene || !assetKey || !loopKey) return;
 
 		untrack(() => {
 			try {
@@ -109,7 +129,7 @@
 						morph: morphEl,
 						ghosts
 					},
-					project,
+					{ track, assets: project.assets, scene },
 					{ restore: ui.progress, playing: ui.isPlaying }
 				);
 				if (result) {
@@ -119,7 +139,7 @@
 				}
 			} catch (err) {
 				ui.engineError = err?.message ?? String(err);
-				console.error('[gasp-tool] build failed', err);
+				console.error('[webmotion] build failed', err);
 			}
 		});
 	});
@@ -170,12 +190,13 @@
 		}
 		if (event.button !== 0) return;
 
+		if (!track) return;
 		const el = event.target;
 		const type = el.dataset?.type;
 		const index = Number(el.dataset?.index);
 
 		if (type === 'marker') {
-			ui.selectedMarkerId = project.markers[index]?.id ?? null;
+			ui.selectedMarkerId = track.markers[index]?.id ?? null;
 			ui.selectedPointIndex = null;
 			drag = { kind: 'marker', index };
 			svgEl.setPointerCapture(event.pointerId);
@@ -208,16 +229,16 @@
 			view.y = panFrom.viewY - (event.clientY - panFrom.y) * (view.h / boxH);
 			return;
 		}
-		if (!drag) return;
+		if (!drag || !track) return;
 
 		const p = toSvg(event);
 		if (drag.kind === 'marker') {
-			const marker = project.markers[drag.index];
+			const marker = track.markers[drag.index];
 			if (marker) marker.progress = projectToPath(pathEl, p.x, p.y);
 			return;
 		}
 
-		const point = project.points[drag.index];
+		const point = track.points[drag.index];
 		if (!point) return;
 
 		if (drag.kind === 'anchor') {
@@ -249,7 +270,7 @@
 	}
 
 	function addPoint(x, y) {
-		const last = project.points[project.points.length - 1];
+		const last = track.points[track.points.length - 1];
 		// Continue in the direction of travel so a new point curves in smoothly
 		// instead of appearing with flat, arbitrary handles.
 		const dx = last ? x - last.x : 120;
@@ -259,16 +280,13 @@
 		const ux = (dx / len) * reach;
 		const uy = (dy / len) * reach;
 
-		project.points = [
-			...project.points,
-			{ id: crypto.randomUUID(), x, y, inX: -ux, inY: -uy, outX: ux, outY: uy }
-		];
+		track.points = [...track.points, makePoint({ x, y, inX: -ux, inY: -uy, outX: ux, outY: uy })];
 	}
 
 	function addMarker(x, y) {
 		const progress = projectToPath(pathEl, x, y);
 		const marker = makeMarker(clamp01(progress));
-		project.markers = [...project.markers, marker];
+		track.markers = [...track.markers, marker];
 		ui.selectedMarkerId = marker.id;
 		ui.mode = 'edit';
 	}
@@ -284,12 +302,13 @@
 		if (document.querySelector('[data-modal]')) return;
 
 		if (event.key === 'Delete' || event.key === 'Backspace') {
+			if (!track) return;
 			if (ui.selectedMarkerId) {
-				project.markers = project.markers.filter((m) => m.id !== ui.selectedMarkerId);
+				track.markers = track.markers.filter((m) => m.id !== ui.selectedMarkerId);
 				ui.selectedMarkerId = null;
 				event.preventDefault();
-			} else if (ui.selectedPointIndex !== null && project.points.length > 2) {
-				project.points = project.points.filter((_, i) => i !== ui.selectedPointIndex);
+			} else if (ui.selectedPointIndex !== null && track.points.length > 2) {
+				track.points = track.points.filter((_, i) => i !== ui.selectedPointIndex);
 				ui.selectedPointIndex = null;
 				event.preventDefault();
 			}
@@ -336,29 +355,31 @@
 			</pattern>
 		</defs>
 
-		{#if project.background}
+		{#if layout?.background}
 			<image
-				href={project.background}
+				href={layout.background}
 				x="0"
 				y="0"
-				width="1200"
-				height="700"
+				width={layout.viewBox.w}
+				height={layout.viewBox.h}
 				preserveAspectRatio="xMidYMid slice"
 				opacity="0.45"
 			/>
 		{:else}
 			<rect x="-6000" y="-6000" width="14000" height="14000" fill="url(#grid-cell)" />
 		{/if}
-		<rect
-			x="0"
-			y="0"
-			width="1200"
-			height="700"
-			fill="none"
-			stroke="#30363d"
-			stroke-width={unit}
-			stroke-dasharray="{10 * unit} {6 * unit}"
-		/>
+		{#if layout}
+			<rect
+				x="0"
+				y="0"
+				width={layout.viewBox.w}
+				height={layout.viewBox.h}
+				fill="none"
+				stroke="#30363d"
+				stroke-width={unit}
+				stroke-dasharray="{10 * unit} {6 * unit}"
+			/>
+		{/if}
 
 		<!-- Motion path: a soft halo under the dashed guide line. -->
 		<path d={pathD} fill="none" stroke="rgba(88,166,255,0.18)" stroke-width={9 * unit} stroke-linecap="round" />
@@ -375,9 +396,9 @@
 		/>
 
 		<!-- Handles -->
-		{#each project.points as point, i (point.id)}
-			{@const showIn = i > 0 || project.settings.closedPath}
-			{@const showOut = i < project.points.length - 1 || project.settings.closedPath}
+		{#each track?.points ?? [] as point, i (point.id)}
+			{@const showIn = i > 0 || track.settings.closedPath}
+			{@const showOut = i < track.points.length - 1 || track.settings.closedPath}
 			{#if showIn}
 				<line
 					x1={point.x}
@@ -436,7 +457,7 @@
 		{/each}
 
 		<!-- Markers -->
-		{#each project.markers as marker, i (marker.id)}
+		{#each track?.markers ?? [] as marker, i (marker.id)}
 			{@const at = markerPoints[i]}
 			{#if at}
 				<g class="cursor-pointer" data-type="marker" data-index={i}>
@@ -482,7 +503,7 @@
 			{#each ghostSlots as i (i)}
 				<g
 					bind:this={ghostEls[i]}
-					opacity={project.settings.trail.opacity * (1 - i / (ghostCount + 1))}
+					opacity={(track?.settings.trail.opacity ?? 0.3) * (1 - i / (ghostCount + 1))}
 				>
 					<use href="#gasp-body" />
 				</g>

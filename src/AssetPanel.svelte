@@ -1,9 +1,18 @@
 <script>
-	import { project, ui } from './lib/state.svelte.js';
+	import { project, ui, activeLayout, activeTrack } from './lib/state.svelte.js';
+	import { makeAsset } from './lib/model.js';
 	import { parseSvgFile, hydrateAsset } from './lib/svg.js';
 	import AssetPreview from './ui/AssetPreview.svelte';
 
 	let error = $state(null);
+
+	const layout = $derived(activeLayout());
+	const track = $derived(activeTrack());
+
+	/** Every track in the project, across all scenes and layouts. */
+	function allTracks() {
+		return project.scenes.flatMap((s) => s.layouts.flatMap((l) => l.tracks));
+	}
 
 	const TOOLS = [
 		{ id: 'edit', label: 'Select / edit', key: 'V' },
@@ -18,7 +27,7 @@
 			try {
 				const text = await file.text();
 				const parsed = parseSvgFile(text, file.name.replace(/\.svg$/i, ''));
-				const asset = hydrateAsset({ id: crypto.randomUUID(), name: parsed.name, d: parsed.d });
+				const asset = hydrateAsset(makeAsset({ name: parsed.name, d: parsed.d }));
 				project.assets = [...project.assets, asset];
 			} catch (err) {
 				error = `${file.name}: ${err.message}`;
@@ -31,7 +40,7 @@
 		const file = event.target.files?.[0];
 		if (!file) return;
 		const reader = new FileReader();
-		reader.onload = (e) => (project.background = e.target.result);
+		reader.onload = (e) => layout && (layout.background = e.target.result);
 		reader.readAsDataURL(file);
 		event.target.value = '';
 	}
@@ -39,12 +48,13 @@
 	function removeAsset(id) {
 		if (project.assets.length <= 1) return;
 		project.assets = project.assets.filter((a) => a.id !== id);
-		if (project.settings.startingAssetId === id) {
-			project.settings.startingAssetId = project.assets[0].id;
-		}
-		// Any marker pointing at the deleted shape would silently break the morph.
-		for (const marker of project.markers) {
-			if (marker.morphTarget === id) marker.morphTarget = 'none';
+		// A dangling reference anywhere in the project would silently render
+		// nothing or break a morph, so repoint every track, not just the active one.
+		for (const t of allTracks()) {
+			if (t.startingAssetId === id) t.startingAssetId = project.assets[0].id;
+			for (const marker of t.markers) {
+				if (marker.morphTarget === id) marker.morphTarget = 'none';
+			}
 		}
 	}
 </script>
@@ -77,8 +87,8 @@
 	<div class="flex flex-col gap-2 p-4">
 		{#each project.assets as asset (asset.id)}
 			<div
-				class="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[13px] {project
-					.settings.startingAssetId === asset.id
+				class="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[13px] {track?.startingAssetId ===
+				asset.id
 					? 'border-accent/60 bg-accent/10'
 					: 'border-line bg-panel-dark'}"
 			>
@@ -90,14 +100,13 @@
 				</div>
 				<div class="flex shrink-0 items-center gap-1.5">
 					<button
-						class="rounded px-1.5 py-1 text-[10px] transition-colors {project.settings
-							.startingAssetId === asset.id
+						class="rounded px-1.5 py-1 text-[10px] transition-colors {track?.startingAssetId === asset.id
 							? 'bg-accent font-bold text-ink'
 							: 'bg-raise text-muted hover:text-white'}"
-						onclick={() => (project.settings.startingAssetId = asset.id)}
+						onclick={() => track && (track.startingAssetId = asset.id)}
 						title="Use as the starting shape"
 					>
-						{project.settings.startingAssetId === asset.id ? 'start' : 'set'}
+						{track?.startingAssetId === asset.id ? 'start' : 'set'}
 					</button>
 					<button
 						class="text-muted transition-colors hover:text-danger disabled:opacity-30"
@@ -149,13 +158,13 @@
 					points="21 15 16 10 5 21"
 				/></svg
 			>
-			{project.background ? 'Replace background' : 'Set background'}
+			{layout?.background ? 'Replace background' : 'Set background'}
 			<input type="file" accept="image/*" class="hidden" onchange={onBackgroundUpload} />
 		</label>
-		{#if project.background}
+		{#if layout?.background}
 			<button
 				class="text-left text-[10px] text-muted transition-colors hover:text-danger"
-				onclick={() => (project.background = null)}>Remove background</button
+				onclick={() => layout && (layout.background = null)}>Remove background</button
 			>
 		{/if}
 	</div>

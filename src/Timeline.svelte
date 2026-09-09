@@ -1,5 +1,7 @@
 <script>
-	import { project, ui, controls } from './lib/state.svelte.js';
+	import { ui, controls, activeScene } from './lib/state.svelte.js';
+
+	const scene = $derived(activeScene());
 
 	let track = $state(null);
 	let scrubbing = $state(false);
@@ -54,7 +56,7 @@
 	}
 
 	function toggle() {
-		if (!ui.isPlaying && ui.progress >= 0.999 && !project.settings.loop) controls.restart?.();
+		if (!ui.isPlaying && ui.progress >= 0.999 && !scene?.loop) controls.restart?.();
 		ui.isPlaying = !ui.isPlaying;
 	}
 
@@ -62,7 +64,7 @@
 		controls.restart?.();
 	}
 
-	const atEnd = $derived(ui.progress >= 0.999 && !project.settings.loop);
+	const atEnd = $derived(ui.progress >= 0.999 && !scene?.loop);
 </script>
 
 <section class="grid h-full grid-cols-[auto_1fr] gap-4 border-t border-line bg-panel px-4">
@@ -98,11 +100,10 @@
 		</button>
 
 		<button
-			class="grid h-9 w-9 place-items-center rounded-md border transition-colors {project.settings
-				.loop
+			class="grid h-9 w-9 place-items-center rounded-md border transition-colors {scene?.loop
 				? 'border-accent bg-accent/10 text-accent'
 				: 'border-line bg-raise text-muted hover:text-white'}"
-			onclick={() => (project.settings.loop = !project.settings.loop)}
+			onclick={() => scene && (scene.loop = !scene.loop)}
 			title="Loop"
 			aria-label="Toggle loop"
 		>

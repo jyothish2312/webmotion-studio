@@ -1,5 +1,5 @@
 <script>
-	import { project } from './lib/state.svelte.js';
+	import { project, activeScene, activeLayout, activeTrack } from './lib/state.svelte.js';
 	import { buildTimelineJs, buildMarkup, buildStandaloneHtml } from './lib/exportCode.js';
 
 	let { onclose } = $props();
@@ -13,13 +13,23 @@
 		{ id: 'html', label: 'Standalone page' }
 	];
 
-	const code = $derived(
-		tab === 'js'
-			? buildTimelineJs(project)
-			: tab === 'markup'
-				? buildMarkup(project)
-				: buildStandaloneHtml(project)
-	);
+	const ctx = $derived({
+		project,
+		scene: activeScene(),
+		layout: activeLayout(),
+		track: activeTrack()
+	});
+
+	const code = $derived.by(() => {
+		if (!ctx.scene || !ctx.layout || !ctx.track) return '// nothing to export yet';
+		try {
+			if (tab === 'js') return buildTimelineJs(ctx);
+			if (tab === 'markup') return buildMarkup(ctx);
+			return buildStandaloneHtml(ctx);
+		} catch (err) {
+			return `// export failed: ${err.message}`;
+		}
+	});
 
 	let copyError = $state(null);
 
