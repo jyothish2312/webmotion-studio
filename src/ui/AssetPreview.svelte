@@ -10,7 +10,7 @@
 	 * {@html} would happily inject whatever markup that string closes into.
 	 * Svelte escapes attribute values, so the path data stays path data.
 	 */
-	let { asset, strokeWidth = 6 } = $props();
+	let { asset, strokeWidth = 2 } = $props();
 
 	const half = CANONICAL_SIZE / 2;
 	const norm = $derived(asset.norm ?? normalizeFrom(measurePath(asset.d)));
