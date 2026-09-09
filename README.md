@@ -1,4 +1,4 @@
-# gasp-tool
+# webmotion-studio
 
 A visual authoring tool for GSAP motion-path and SVG-morph animations. Draw a bezier
 path, drop markers along it, say what the object should do at each one, then export
