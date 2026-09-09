@@ -1,0 +1,71 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-ink: #0d1117;
+	--color-panel: #161b22;
+	--color-panel-dark: #0f141b;
+	--color-raise: #21262d;
+	--color-line: #30363d;
+	--color-accent: #58a6ff;
+	--color-grape: #a371f7;
+	--color-danger: #ff7b72;
+	--color-point: #f2cc60;
+	--color-muted: #8b949e;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--color-ink);
+	color: #e6edf3;
+	font-family: Inter, system-ui, sans-serif;
+}
+
+/* Thin scrollbars for the side panels. */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-line) transparent;
+}
+
+input[type='range'] {
+	accent-color: var(--color-accent);
+}
+
+/*
+ * Shared control skins. These live in the `components` layer on purpose: the
+ * utilities layer is emitted after it, so a one-off `mb-0` or `text-white` in
+ * markup still wins over the defaults here.
+ */
+@layer components {
+	.field {
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		border-radius: 0.375rem;
+		background: var(--color-panel-dark);
+		border: 1px solid var(--color-line);
+		color: white;
+		font-size: 0.8125rem;
+		outline: none;
+	}
+
+	.field:focus {
+		border-color: var(--color-accent);
+	}
+
+	.field-label {
+		display: block;
+		margin-bottom: 0.375rem;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--color-muted);
+		letter-spacing: 0.02em;
+	}
+
+	.hint {
+		font-size: 0.625rem;
+		line-height: 1.35;
+		color: var(--color-muted);
+	}
+}
