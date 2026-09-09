@@ -259,6 +259,11 @@ await wait(600);
 const afterLifeOff = await evaluate(PROBE);
 const identity = (t) => !t || t === 'none' || /matrix\(1,\s*0,\s*0,\s*1,\s*0,\s*0\)/.test(t.replace(/\s+/g, ' '));
 check('disabling idle life resets its wrapper', identity(afterLifeOff?.lifeTransform), afterLifeOff?.lifeTransform);
+// Switch it back on; later checks need the Idle life controls present.
+await evaluate(
+  `(() => { const l = [...document.querySelectorAll('aside label')].filter(l => l.textContent.trim().startsWith('Enabled')); l[0]?.querySelector('input[type=checkbox]')?.click(); })()`
+);
+await wait(500);
 
 // --- asset orientation ----------------------------------------------------
 // adjust.rotate rides on a wrapper OUTSIDE .gasp-norm, so it pivots about the
@@ -412,6 +417,59 @@ await wait(500);
 // Back to a single layout so later checks read the original scene.
 await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Delete layout"]')]; if (b.length) b[0].click(); })()`);
 await wait(700);
+
+// --- physicality ----------------------------------------------------------
+// Momentum takes rotation away from autoRotate and gives it to a spring, so the
+// heading lags the tangent instead of matching it exactly.
+const dynBefore = await evaluate(`(() => { const e = document.querySelector('.gasp-dyn'); return e ? (e.style.transform || e.getAttribute('transform') || 'none') : null; })()`);
+check('dynamics wrapper exists', dynBefore !== null, dynBefore);
+
+await evaluate(`(() => {
+  const l = [...document.querySelectorAll('aside label')].find(l => l.textContent.trim().startsWith('Momentum'));
+  l.querySelector('input[type=checkbox]').click();
+})()`);
+await wait(700);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(1200);
+const dynMoving = await evaluate(`(() => { const e = document.querySelector('.gasp-dyn'); return e.style.transform || e.getAttribute('transform') || 'none'; })()`);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(300);
+const identityTf2 = (t) => !t || t === 'none' || /matrix\(1,\s*0,\s*0,\s*1,\s*0,\s*0\)/.test(String(t).replace(/\s+/g, ' '));
+check('momentum drives the dynamics wrapper', !identityTf2(dynMoving), dynMoving);
+
+// A scrubbed frame has to be reproducible: springs snap rather than integrate.
+const trackRect = await evaluate(`(() => { const t = document.querySelector('[data-scrub-ruler]'); const r = t.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`);
+async function scrubRuler(f) {
+  const x = trackRect[0] + trackRect[2] * f;
+  const y = trackRect[1] + trackRect[3] / 2;
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, buttons: 0 });
+  await wait(250);
+  return evaluate(`(() => { const e = document.querySelector('.gasp-dyn'); return e.style.transform || e.getAttribute('transform') || 'none'; })()`);
+}
+const at40a = await scrubRuler(0.4);
+await scrubRuler(0.85);
+const at40b = await scrubRuler(0.4);
+check('scrubbing to the same time gives the same dynamics frame', at40a === at40b, `${at40a} vs ${at40b}`);
+
+// Organic idle swaps the sine tweens for noise on the dynamics wrapper.
+await evaluate(`(() => {
+  const l = [...document.querySelectorAll('aside label')].find(l => l.textContent.trim().startsWith('Momentum'));
+  l.querySelector('input[type=checkbox]').click();
+  const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Organic');
+  if (b) b.click();
+})()`);
+await wait(700);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(500);
+const organicA = await evaluate(`(() => { const e = document.querySelector('.gasp-dyn'); return e.style.transform || e.getAttribute('transform') || 'none'; })()`);
+await wait(700);
+const organicB = await evaluate(`(() => { const e = document.querySelector('.gasp-dyn'); return e.style.transform || e.getAttribute('transform') || 'none'; })()`);
+await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
+await wait(300);
+check('organic idle animates the dynamics wrapper', organicA !== organicB, `${organicA} -> ${organicB}`);
+await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Mechanical'); if (b) b.click(); })()`);
+await wait(600);
 
 // --- scenes ---------------------------------------------------------------
 const sceneCount0 = await evaluate(`document.querySelectorAll('header select option').length`);

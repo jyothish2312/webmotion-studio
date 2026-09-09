@@ -227,17 +227,16 @@ function trackMarkup(track, pad, depth) {
 				`<use href="#${bodyId}"/></g>`
 		);
 	}
-	rows.push(`${pad(depth + 1)}<g class="gasp-place">`);
-	rows.push(`${pad(depth + 2)}<g class="gasp-life">`);
-	rows.push(`${pad(depth + 3)}<g class="gasp-fx" id="${bodyId}">`);
-	rows.push(`${pad(depth + 4)}<g class="gasp-size">`);
-	rows.push(`${pad(depth + 5)}<g class="gasp-orient">`);
-	rows.push(`${pad(depth + 6)}<g class="gasp-norm">`);
+	const STACK = ['gasp-place', 'gasp-dyn', 'gasp-life', 'gasp-accent', 'gasp-fx', 'gasp-size', 'gasp-orient', 'gasp-norm'];
+	STACK.forEach((cls, i) => {
+		const id = cls === 'gasp-fx' ? ` id="${bodyId}"` : '';
+		rows.push(`${pad(depth + 1 + i)}<g class="${cls}"${id}>`);
+	});
 	rows.push(
-		`${pad(depth + 7)}<path class="gasp-shape" d="" fill="none" stroke="#e6edf3" stroke-width="2" ` +
+		`${pad(depth + 1 + STACK.length)}<path class="gasp-shape" d="" fill="none" stroke="#e6edf3" stroke-width="2" ` +
 			`stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`
 	);
-	for (let i = 6; i >= 1; i--) rows.push(`${pad(depth + i)}</g>`);
+	for (let i = STACK.length; i >= 1; i--) rows.push(`${pad(depth + i)}</g>`);
 	rows.push(`${pad(depth)}</g>`);
 	return rows;
 }

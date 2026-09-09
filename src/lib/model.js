@@ -99,6 +99,10 @@ export function makeMarker(progress, over = {}) {
 export function makeLife(over = {}) {
 	return {
 		enabled: over.enabled !== false,
+		// 'sine' repeats exactly and reads as clockwork; 'organic' sums octaves of
+		// value noise so it never lines up the same way twice.
+		mode: over.mode === 'organic' ? 'organic' : 'sine',
+		turbulence: Math.max(0, num(over.turbulence, 1)),
 		bob: Math.max(0, num(over.bob, 3)),
 		bobSpeed: Math.max(0.1, num(over.bobSpeed, 1.4)),
 		sway: Math.max(0, num(over.sway, 4)),
@@ -114,6 +118,49 @@ export function makeTrail(over = {}) {
 		count: clamp(Math.round(num(over.count, 5)), 0, 12),
 		lag: clamp(Math.round(num(over.lag, 3)), 1, 12),
 		opacity: clamp(num(over.opacity, 0.3), 0, 1)
+	};
+}
+
+/**
+ * How the object lags behind the path instead of snapping to its tangent.
+ * Turning this on takes rotation away from MotionPathPlugin's autoRotate so a
+ * spring can chase the heading, overshoot on a corner and settle.
+ */
+export function makeMomentum(over = {}) {
+	return {
+		enabled: Boolean(over.enabled),
+		responsiveness: Math.max(0.2, num(over.responsiveness, 3)),
+		overshoot: clamp(num(over.overshoot, 0.6), 0.05, 1.5),
+		bank: num(over.bank, 12),
+		pitch: num(over.pitch, 6)
+	};
+}
+
+/** Fakes mass: the body tilts against its own sideways acceleration. */
+export function makeWeight(over = {}) {
+	return {
+		enabled: Boolean(over.enabled),
+		amount: num(over.amount, 14),
+		responsiveness: Math.max(0.2, num(over.responsiveness, 2.2)),
+		overshoot: clamp(num(over.overshoot, 0.45), 0.05, 1.5)
+	};
+}
+
+/** A scale punch when a shape change fires — the grab wants a beat. */
+export function makeRecoil(over = {}) {
+	return {
+		enabled: over.enabled !== false,
+		scale: num(over.scale, 0.1),
+		duration: Math.max(0.05, num(over.duration, 0.25))
+	};
+}
+
+/** Damped oscillation on arriving at a stop. Authored, so it stays scrubbable. */
+export function makeSettle(over = {}) {
+	return {
+		enabled: Boolean(over.enabled),
+		amount: num(over.amount, 6),
+		duration: Math.max(0.1, num(over.duration, 0.7))
 	};
 }
 
@@ -135,7 +182,11 @@ export function makeTrackSettings(over = {}) {
 		startState: makeState(over.startState),
 
 		life: makeLife(over.life),
-		trail: makeTrail(over.trail)
+		trail: makeTrail(over.trail),
+		momentum: makeMomentum(over.momentum),
+		weight: makeWeight(over.weight),
+		morphRecoil: makeRecoil(over.morphRecoil),
+		settle: makeSettle(over.settle)
 	};
 }
 

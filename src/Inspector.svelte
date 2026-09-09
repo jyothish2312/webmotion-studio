@@ -364,11 +364,75 @@
 		</Section>
 
 		<Section
+			title="Physicality"
+			hint="Procedural secondary motion: springs and noise, not keyframes. It runs on wall-clock time, so a paused frame snaps to its target and stays reproducible."
+		>
+			<Toggle
+				label="Momentum"
+				bind:checked={settings.momentum.enabled}
+				hint="A spring chases the path heading instead of snapping to it, so the nose swings wide on a corner and settles."
+			/>
+			{#if settings.momentum.enabled}
+				<Slider label="Responsiveness" bind:value={settings.momentum.responsiveness} min={0.5} max={12} step={0.1} decimals={1} />
+				<Slider label="Overshoot" bind:value={settings.momentum.overshoot} min={0.05} max={1.5} step={0.05} decimals={2} hint="Below 1 rings; 1 settles clean." />
+				<Slider label="Bank into turns" bind:value={settings.momentum.bank} min={0} max={45} step={1} suffix="°" decimals={0} />
+				<Slider label="Pitch on speed change" bind:value={settings.momentum.pitch} min={0} max={30} step={1} suffix="°" decimals={0} />
+			{/if}
+
+			<Toggle
+				label="Off-weight"
+				bind:checked={settings.weight.enabled}
+				hint="The body tilts against its own sideways acceleration, then overshoots back. Fakes mass."
+			/>
+			{#if settings.weight.enabled}
+				<Slider label="Weight" bind:value={settings.weight.amount} min={0} max={45} step={1} suffix="°" decimals={0} />
+				<Slider label="Responsiveness" bind:value={settings.weight.responsiveness} min={0.3} max={8} step={0.1} decimals={1} />
+				<Slider label="Overshoot" bind:value={settings.weight.overshoot} min={0.05} max={1.5} step={0.05} decimals={2} />
+			{/if}
+
+			<Toggle label="Settle on arrival" bind:checked={settings.settle.enabled} hint="A damped wobble each time it reaches a marker." />
+			{#if settings.settle.enabled}
+				<Slider label="Settle angle" bind:value={settings.settle.amount} min={0} max={30} step={1} suffix="°" decimals={0} />
+				<Slider label="Settle length" bind:value={settings.settle.duration} min={0.1} max={2} step={0.1} suffix="s" decimals={1} />
+			{/if}
+
+			<Toggle label="Recoil on morph" bind:checked={settings.morphRecoil.enabled} hint="A scale punch when the shape changes, so a grab lands." />
+			{#if settings.morphRecoil.enabled}
+				<Slider label="Recoil" bind:value={settings.morphRecoil.scale} min={0} max={0.5} step={0.01} decimals={2} />
+				<Slider label="Recoil length" bind:value={settings.morphRecoil.duration} min={0.05} max={1} step={0.05} suffix="s" decimals={2} />
+			{/if}
+		</Section>
+
+		<Section
 			title="Idle life"
 			hint="Continuous secondary motion. Runs on its own clock, independent of the timeline — this is the difference between a sprite sliding along a line and something that feels airborne."
 		>
 			<Toggle label="Enabled" bind:checked={settings.life.enabled} />
 			{#if settings.life.enabled}
+				<div class="mb-3">
+					<span class="field-label">Character</span>
+					<div class="flex gap-1">
+						{#each [['sine', 'Mechanical'], ['organic', 'Organic']] as [value, label] (value)}
+							<button
+								type="button"
+								class="flex-1 rounded-md border px-2 py-1.5 text-[11px] transition-colors {settings.life
+									.mode === value
+									? 'border-accent bg-accent/10 text-white'
+									: 'border-line bg-panel-dark text-muted hover:text-white'}"
+								onclick={() => (settings.life.mode = value)}
+							>
+								{label}
+							</button>
+						{/each}
+					</div>
+					<p class="hint mt-1">
+						Sine loops repeat exactly and read as clockwork. Organic sums octaves of noise, which
+						never line up the same way twice.
+					</p>
+				</div>
+				{#if settings.life.mode === 'organic'}
+					<Slider label="Turbulence" bind:value={settings.life.turbulence} min={0.1} max={4} step={0.1} decimals={1} />
+				{/if}
 				<Slider label="Bob height" bind:value={settings.life.bob} min={0} max={20} step={0.5} suffix="px" decimals={1} />
 				<Slider label="Bob period" bind:value={settings.life.bobSpeed} min={0.2} max={5} step={0.1} suffix="s" decimals={1} />
 				<Slider label="Sway angle" bind:value={settings.life.sway} min={0} max={30} step={0.5} suffix="°" decimals={1} />

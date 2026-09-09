@@ -3,6 +3,7 @@ import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
 import { clamp01 } from './path.js';
 import { ORIENT_KEYS } from './svg.js';
+import { createAngleSpring, createNoise, createSpring, samplePath } from './dynamics.js';
 
 gsap.registerPlugin(MotionPathPlugin, MorphSVGPlugin);
 
@@ -153,6 +154,105 @@ export function createTrackRenderer() {
 	let history = [];
 	let recording = false;
 
+	/**
+	 * Wall-clock secondary motion. Stepped by the scene's ticker, never by the
+	 * timeline: it is behaviour, not authored keyframes. When the scene is paused
+	 * every spring snaps to its target, so a scrubbed frame is deterministic.
+	 */
+	let dyn = null;
+
+	function resetDynamics(track) {
+		const s = track.settings;
+		dyn = {
+			cfg: s,
+			heading: createAngleSpring(s.momentum.responsiveness, s.momentum.overshoot),
+			bank: createSpring(s.momentum.responsiveness * 0.8, 0.9),
+			lean: createSpring(s.weight.responsiveness, s.weight.overshoot),
+			noiseY: createNoise(11),
+			noiseR: createNoise(29),
+			noiseS: createNoise(53),
+			clock: 0,
+			lastP: clamp01(proxy.p),
+			speed: 0,
+			lastSpeed: 0,
+			pathLength: 0,
+			primed: false
+		};
+	}
+
+	/**
+	 * Reads the path heading and how fast the object is covering it, then lets the
+	 * springs chase those. Returns nothing; it writes straight to the wrappers.
+	 */
+	function stepDynamics(dt, playing) {
+		if (!dyn || !refs?.dyn) return;
+		const s = dyn.cfg;
+		const p = clamp01(proxy.p);
+
+		if (!dyn.pathLength) {
+			try {
+				dyn.pathLength = refs.path.getTotalLength();
+			} catch {
+				dyn.pathLength = 0;
+			}
+		}
+
+		// dt === 0 means "we just seeked". Bank and pitch are derived from smoothed
+		// speed history, so that history has to be dropped as well — otherwise
+		// scrubbing to the same time twice gives two slightly different frames
+		// depending on how you got there.
+		if (dt <= 0) {
+			dyn.speed = 0;
+			dyn.lastSpeed = 0;
+			dyn.lastP = p;
+		} else {
+			// Speed along the path in units/second, smoothed a little so a single
+			// long frame does not spike the bank.
+			const instant = (Math.abs(p - dyn.lastP) * dyn.pathLength) / dt;
+			dyn.lastSpeed = dyn.speed;
+			dyn.speed += (instant - dyn.speed) * Math.min(1, dt * 8);
+			dyn.lastP = p;
+			dyn.clock += dt;
+		}
+
+		let rotation = 0;
+		let extraY = 0;
+		let extraScale = 1;
+
+		if (s.momentum.enabled) {
+			const { angle, curvature } = samplePath(refs.path, p, dyn.pathLength);
+			const target = angle + (s.autoRotate ? s.rotationOffset : 0);
+			const heading = playing && dyn.primed ? dyn.heading.step(target, dt) : dyn.heading.snap(target);
+
+			// Roll into the corner in proportion to how sharply it is turning and
+			// how fast it is going, and pitch against the change in speed.
+			const speedNorm = Math.min(1, dyn.speed / 600);
+			const bankTarget = -curvature * speedNorm * (s.momentum.bank / 10);
+			const bank = playing && dyn.primed ? dyn.bank.step(bankTarget, dt) : dyn.bank.snap(bankTarget);
+			const accel = dt > 0 ? (dyn.speed - dyn.lastSpeed) / dt : 0;
+			const pitch = Math.max(-25, Math.min(25, (-accel / 2000) * s.momentum.pitch));
+
+			rotation += heading + bank + pitch;
+		}
+
+		if (s.weight.enabled) {
+			const accel = dt > 0 ? (dyn.speed - dyn.lastSpeed) / dt : 0;
+			const target = Math.max(-45, Math.min(45, (-accel / 1500) * s.weight.amount));
+			rotation += playing && dyn.primed ? dyn.lean.step(target, dt) : dyn.lean.snap(target);
+		}
+
+		const life = s.life;
+		if (life.enabled && life.mode === 'organic' && playing) {
+			const t = dyn.clock * life.turbulence;
+			extraY += dyn.noiseY(t / Math.max(0.1, life.bobSpeed)) * life.bob;
+			rotation += dyn.noiseR(t / Math.max(0.1, life.swaySpeed)) * life.sway;
+			extraScale += dyn.noiseS(t / Math.max(0.1, life.pulseSpeed)) * life.pulse;
+		}
+
+		dyn.primed = true;
+		gsap.set(refs.dyn, { rotation, y: extraY, scale: extraScale });
+	}
+
 	function frame() {
 		const p = clamp01(proxy.p);
 		if (placer) placer.progress(p);
@@ -190,7 +290,9 @@ export function createTrackRenderer() {
 				path: refs.path,
 				align: refs.path,
 				alignOrigin: [0.5, 0.5],
-				autoRotate: s.autoRotate ? s.rotationOffset || true : false
+				// With momentum on, a spring owns the heading instead — autoRotate
+				// snaps to the tangent exactly, which is what we are replacing.
+				autoRotate: s.momentum.enabled ? false : s.autoRotate ? s.rotationOffset || true : false
 			}
 		});
 	}
@@ -208,7 +310,8 @@ export function createTrackRenderer() {
 
 	function buildLife(track) {
 		const cfg = track.settings.life;
-		if (!cfg?.enabled || !refs.life) return;
+		// Organic idle is noise stepped by the ticker, not tweens.
+		if (!cfg?.enabled || cfg.mode === 'organic' || !refs.life) return;
 
 		const loop = (from, to) =>
 			life.push(
@@ -291,6 +394,9 @@ export function createTrackRenderer() {
 		// wrapper whose driving tweens might not be rebuilt has to be reset by
 		// hand — otherwise turning idle life off freezes the object mid-bob.
 		if (refs.life) gsap.set(refs.life, { x: 0, y: 0, rotation: 0, scale: 1 });
+		if (refs.dyn) gsap.set(refs.dyn, { x: 0, y: 0, rotation: 0, scale: 1 });
+		if (refs.accent) gsap.set(refs.accent, { scale: 1, rotation: 0 });
+		resetDynamics(track);
 
 		timeline.set(refs.morph, { attr: { d: startAsset.d } }, 0);
 		timeline.set(refs.norm, { ...startAsset.norm }, 0);
@@ -311,6 +417,22 @@ export function createTrackRenderer() {
 			timeline.set(refs.fx, transformOf(stop.state), stop.arriveAt);
 			timeline.set(refs.morph, paintOf(stop.state), stop.arriveAt);
 			timeline.set(proxy, { p: stop.from }, stop.arriveAt);
+
+			// --- Settle: a damped wobble on arrival. Authored on its own wrapper so
+			// it scrubs with the timeline and never fights the per-stop state tweens.
+			if (s.settle.enabled && refs.accent && !stop.isStart) {
+				timeline.fromTo(
+					refs.accent,
+					{ rotation: s.settle.amount },
+					{
+						rotation: 0,
+						duration: s.settle.duration,
+						ease: `elastic.out(1, ${Math.min(0.9, 0.18 + s.settle.duration / 6)})`,
+						immediateRender: false
+					},
+					stop.arriveAt
+				);
+			}
 
 			// --- Shape change.
 			const win = morphWindow(stop);
@@ -352,6 +474,24 @@ export function createTrackRenderer() {
 						win.at
 					);
 				}
+				// A scale punch on the shape change, so a grab lands rather than
+				// dissolving. Rides the accent wrapper alongside settle.
+				if (s.morphRecoil.enabled && s.morphRecoil.scale > 0 && refs.accent) {
+					timeline.fromTo(
+						refs.accent,
+						{ scale: 1 },
+						{
+							scale: 1 + s.morphRecoil.scale,
+							duration: s.morphRecoil.duration / 2,
+							ease: 'power2.out',
+							yoyo: true,
+							repeat: 1,
+							immediateRender: false
+						},
+						win.at
+					);
+				}
+
 				shape = targetAsset;
 			}
 
@@ -394,6 +534,7 @@ export function createTrackRenderer() {
 	return {
 		build,
 		frame,
+		stepDynamics,
 		resetHistory,
 		get timeline() {
 			return timeline;
@@ -425,8 +566,37 @@ export function createSceneRenderer() {
 	const renderers = new Map();
 	let plan = { lanes: [], duration: 0 };
 	let onFrame = null;
+	let playing = false;
+	let ticking = false;
+	let lastTick = 0;
+
+	/**
+	 * Secondary motion runs on the ticker, not the timeline.
+	 *
+	 * A track's own timeline only fires onUpdate while the playhead is inside its
+	 * window, so a track that has finished — or has not started yet — would sit
+	 * frozen. Wall-clock behaviour has to keep going regardless.
+	 */
+	function tick() {
+		const now = gsap.ticker.time;
+		const dt = lastTick ? Math.max(0, now - lastTick) : 1 / 60;
+		lastTick = now;
+		renderers.forEach((r) => r.stepDynamics(dt, playing));
+	}
+
+	function setTicking(on) {
+		if (on === ticking) return;
+		ticking = on;
+		if (on) {
+			lastTick = gsap.ticker.time;
+			gsap.ticker.add(tick);
+		} else {
+			gsap.ticker.remove(tick);
+		}
+	}
 
 	function teardown() {
+		setTicking(false);
 		master?.kill();
 		master = null;
 		renderers.forEach((r) => r.destroy());
@@ -486,12 +656,17 @@ export function createSceneRenderer() {
 		return { lanes: plan.lanes, duration: plan.duration };
 	}
 
-	function setPlaying(playing) {
+	function setPlaying(next) {
+		playing = next;
 		renderers.forEach((r) => {
-			r.setRecording(playing);
-			r.setLifePlaying(playing);
+			r.setRecording(next);
+			r.setLifePlaying(next);
 		});
-		if (master) playing ? master.play() : master.pause();
+		if (master) next ? master.play() : master.pause();
+		// Keep ticking for one settle pass after a pause so the springs land on
+		// their targets rather than freezing mid-swing.
+		setTicking(true);
+		if (!next) tick();
 	}
 
 	/** Re-push the current frame to every track after a seek. */
@@ -499,6 +674,8 @@ export function createSceneRenderer() {
 		renderers.forEach((r) => {
 			r.resetHistory();
 			r.frame();
+			// Snap, do not integrate: a scrubbed frame has to be reproducible.
+			r.stepDynamics(0, false);
 		});
 	}
 
