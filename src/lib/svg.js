@@ -1,4 +1,5 @@
 import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
+import { makeAdjust } from './model.js';
 
 /**
  * Everything in this file exists to get arbitrary SVG artwork into ONE shared
@@ -48,10 +49,42 @@ export function normalizeFrom(box, size = CANONICAL_SIZE) {
 	return { scale, x: scale * offsetX, y: scale * offsetY };
 }
 
-/** Attaches measurement data to an asset. Safe to call more than once. */
+/**
+ * The author's correction to the artwork itself — tilt, mirror, size, nudge.
+ *
+ * This rides on a wrapper OUTSIDE `.gasp-norm`. Normalisation has already put
+ * the shape's centre on the origin by then, so rotating and mirroring about the
+ * origin pivots around the shape's middle, and the nudge lands in screen space
+ * rather than being spun around by the rotation.
+ */
+export function orientFrom(adjust) {
+	const k = adjust.scale || 1;
+	return {
+		x: adjust.nudgeX,
+		y: adjust.nudgeY,
+		rotation: adjust.rotate,
+		scaleX: (adjust.flipX ? -1 : 1) * k,
+		scaleY: (adjust.flipY ? -1 : 1) * k
+	};
+}
+
+/** Props the orient wrapper tweens during a morph — svgOrigin is set once. */
+export const ORIENT_KEYS = ['x', 'y', 'rotation', 'scaleX', 'scaleY'];
+
+/**
+ * Attaches measurement data to an asset. Cheap to call repeatedly: it only
+ * re-measures when the path data or the adjustment actually changed, which is
+ * what lets the Adjust sliders update live.
+ */
 export function hydrateAsset(asset) {
-	if (asset.norm) return asset;
+	if (!asset.adjust) asset.adjust = makeAdjust();
+	const a = asset.adjust;
+	const signature = [asset.d, a.rotate, a.flipX, a.flipY, a.scale, a.nudgeX, a.nudgeY].join('|');
+	if (asset.__measured === signature) return asset;
+
 	asset.norm = normalizeFrom(measurePath(asset.d));
+	asset.orient = orientFrom(a);
+	asset.__measured = signature;
 	return asset;
 }
 

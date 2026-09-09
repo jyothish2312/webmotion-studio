@@ -7,7 +7,8 @@
 		step = 0.01,
 		suffix = '',
 		decimals = 2,
-		hint = ''
+		hint = '',
+		onchange = null
 	} = $props();
 
 	// Trim trailing zeros only past a decimal point — a naive strip turns 100 into 1.
@@ -22,6 +23,6 @@
 		<span class="field-label mb-0">{label}</span>
 		<span class="font-mono text-[11px] text-accent tabular-nums">{shown}{suffix}</span>
 	</div>
-	<input type="range" {min} {max} {step} bind:value class="h-1 w-full" />
+	<input type="range" {min} {max} {step} bind:value oninput={onchange} class="h-1 w-full" />
 	{#if hint}<p class="hint mt-1">{hint}</p>{/if}
 </div>

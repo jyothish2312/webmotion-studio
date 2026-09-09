@@ -162,6 +162,7 @@ const PROBE = `(() => {
     shapeDLen: shape ? (shape.getAttribute('d') || '').length : 0,
     placeTransform: tf(place),
     normTransform: tf(norm),
+    orientTransform: tf(q('.gasp-orient')),
     lifeTransform: tf(life),
     ghostUses: document.querySelectorAll('use[href="#gasp-body"]').length,
     center: box ? [Math.round(box.x + box.width/2), Math.round(box.y + box.height/2)] : null,
@@ -180,6 +181,7 @@ check('side panels rendered', before?.panels === 2, `got ${before?.panels}`);
 check('start shape painted on the first frame', before?.shapeDLen > 20, `d length ${before?.shapeDLen}`);
 check('motion path placed the object', !!before?.placeTransform, before?.placeTransform);
 check('normalisation applied', !!before?.normTransform, before?.normTransform);
+check('orient wrapper exists', before?.orientTransform !== null, before?.orientTransform);
 check('object is on screen, not parked at the origin', before?.center?.[0] > 20 && before?.center?.[1] > 20, JSON.stringify(before?.center));
 check('timeline reports a duration', /[1-9]/.test(before?.readout ?? ''), before?.readout);
 
@@ -242,6 +244,49 @@ await wait(600);
 const afterLifeOff = await evaluate(PROBE);
 const identity = (t) => !t || t === 'none' || /matrix\(1,\s*0,\s*0,\s*1,\s*0,\s*0\)/.test(t.replace(/\s+/g, ' '));
 check('disabling idle life resets its wrapper', identity(afterLifeOff?.lifeTransform), afterLifeOff?.lifeTransform);
+
+// --- asset orientation ----------------------------------------------------
+// adjust.rotate rides on a wrapper OUTSIDE .gasp-norm, so it pivots about the
+// shape's centre rather than the artboard origin.
+const beforeShape = await evaluate(
+  `(() => { const b = document.querySelector('.gasp-shape').getBoundingClientRect(); return [Math.round(b.x+b.width/2), Math.round(b.y+b.height/2), Math.round(b.width), Math.round(b.height)]; })()`
+);
+await evaluate(`(() => {
+  const btn = document.querySelector('[aria-label="Adjust artwork"]');
+  btn.click();
+})()`);
+await wait(400);
+const spun = await evaluate(`(() => {
+  const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '⟳ 90°');
+  if (!b) return 'no rotate button';
+  b.click(); return 'rotated';
+})()`);
+await wait(600);
+const afterShape = await evaluate(
+  `(() => { const b = document.querySelector('.gasp-shape').getBoundingClientRect(); return [Math.round(b.x+b.width/2), Math.round(b.y+b.height/2), Math.round(b.width), Math.round(b.height)]; })()`
+);
+const orientNow = await evaluate(`(() => { const e = document.querySelector('.gasp-orient'); return e.style.transform || e.getAttribute('transform') || ''; })()`);
+const centreDrift = Math.hypot(afterShape[0] - beforeShape[0], afterShape[1] - beforeShape[1]);
+const identityTf = (t) => !t || t === 'none' || /matrix\(1,\s*0,\s*0,\s*1,\s*0,\s*0\)/.test(String(t).replace(/\s+/g, ' '));
+check('rotating an asset reaches .gasp-orient', !identityTf(orientNow), `${spun} -> ${orientNow}`);
+check('rotation pivots about the shape centre, not the artboard origin', centreDrift < 25,
+  `centre moved ${centreDrift.toFixed(0)}px; box ${beforeShape[2]}x${beforeShape[3]} -> ${afterShape[2]}x${afterShape[3]}`);
+
+// --- preview mode ---------------------------------------------------------
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Preview').click()`);
+await wait(500);
+const previewing = await evaluate(`({
+  chrome: document.querySelectorAll('circle[data-type="anchor"]').length,
+  asides: document.querySelectorAll('aside').length,
+  shape: !!document.querySelector('.gasp-shape'),
+  viewBox: document.querySelector('svg[role=application]').getAttribute('viewBox')
+})`);
+check('preview hides the editor chrome', previewing?.chrome === 0 && previewing?.asides === 0, JSON.stringify(previewing));
+check('preview keeps the object and frames the layout', previewing?.shape === true && previewing?.viewBox === '0 0 1200 700', previewing?.viewBox);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Exit preview').click()`);
+await wait(400);
+const restored = await evaluate(`document.querySelectorAll('circle[data-type="anchor"]').length`);
+check('exiting preview restores the chrome', restored > 0, `${restored} anchors`);
 
 // --- untrusted project file ----------------------------------------------
 // `asset.d` is written verbatim by load(). It must never reach the DOM as

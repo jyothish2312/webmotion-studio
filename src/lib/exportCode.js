@@ -39,6 +39,7 @@ export function buildTimelineJs({ project, scene, layout, track }) {
 	push(`const life  = root.querySelector('.gasp-life');`);
 	push(`const fx    = root.querySelector('.gasp-fx');`);
 	push(`const size  = root.querySelector('.gasp-size');`);
+	push(`const orient = root.querySelector('.gasp-orient');`);
 	push(`const norm  = root.querySelector('.gasp-norm');`);
 	push(`const shape = root.querySelector('.gasp-shape');`);
 	push();
@@ -59,8 +60,13 @@ export function buildTimelineJs({ project, scene, layout, track }) {
 	push(`  onUpdate() { place1.progress(at.p); }`);
 	push(`});`);
 	push();
+	push(`// svgOrigin pins the artwork pivot to the origin; the default is the`);
+	push(`// bounding-box centre, which moves as the shape morphs.`);
+	push(`gsap.set(orient, { ...${j(startAsset.orient)}, svgOrigin: '0 0' });`);
+	push();
 	push(`tl.set(shape, { attr: { d: ${j(startAsset.d)} } }, 0)`);
 	push(`  .set(norm, ${j(startAsset.norm)}, 0)`);
+	push(`  .set(orient, ${j(startAsset.orient)}, 0)`);
 	push(`  .set(size, { scale: ${n(s.objectSize / 100)} }, 0);`);
 	push();
 
@@ -98,6 +104,13 @@ export function buildTimelineJs({ project, scene, layout, track }) {
 				`    { ...${j(targetAsset.norm)}, duration: ${n(win.duration)}, ease: ${j(stop.ease)}, immediateRender: false },`
 			);
 			push(`    ${n(win.at)});`);
+			if (JSON.stringify(shape.orient) !== JSON.stringify(targetAsset.orient)) {
+				push(`tl.fromTo(orient, ${j(shape.orient)},`);
+				push(
+					`    { ...${j(targetAsset.orient)}, duration: ${n(win.duration)}, ease: ${j(stop.ease)}, immediateRender: false },`
+				);
+				push(`    ${n(win.at)});`);
+			}
 			shape = targetAsset;
 		}
 
@@ -192,11 +205,13 @@ export function buildMarkup({ layout, track }, { indent = '' } = {}) {
 	rows.push(`${pad(2)}<g class="gasp-life">`);
 	rows.push(`${pad(3)}<g class="gasp-fx" id="gasp-body">`);
 	rows.push(`${pad(4)}<g class="gasp-size">`);
-	rows.push(`${pad(5)}<g class="gasp-norm">`);
+	rows.push(`${pad(5)}<g class="gasp-orient">`);
+	rows.push(`${pad(6)}<g class="gasp-norm">`);
 	rows.push(
-		`${pad(6)}<path class="gasp-shape" d="" fill="none" stroke="#e6edf3" stroke-width="2" ` +
+		`${pad(7)}<path class="gasp-shape" d="" fill="none" stroke="#e6edf3" stroke-width="2" ` +
 			`stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`
 	);
+	rows.push(`${pad(6)}</g>`);
 	rows.push(`${pad(5)}</g>`);
 	rows.push(`${pad(4)}</g>`);
 	rows.push(`${pad(3)}</g>`);

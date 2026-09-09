@@ -2,6 +2,7 @@ import { gsap } from 'gsap';
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
 import { clamp01 } from './path.js';
+import { ORIENT_KEYS } from './svg.js';
 
 gsap.registerPlugin(MotionPathPlugin, MorphSVGPlugin);
 
@@ -88,6 +89,16 @@ function transformOf(state) {
 
 function paintOf(state) {
 	return { stroke: state.stroke, strokeWidth: state.strokeWidth, fill: state.fill };
+}
+
+function pick(source, keys) {
+	const out = {};
+	for (const key of keys) out[key] = source[key];
+	return out;
+}
+
+function sameOrient(a, b) {
+	return a && b && ORIENT_KEYS.every((k) => a[k] === b[k]);
 }
 
 /**
@@ -216,6 +227,10 @@ export function createEngine() {
 		const baseline = () => {
 			gsap.set(refs.morph, { attr: { d: startAsset.d } });
 			gsap.set(refs.norm, { ...startAsset.norm });
+			// Pin the pivot to the origin once. The default origin is the bounding
+			// box centre, which moves as the shape morphs; normalisation has already
+			// put the shape's centre on the origin, so this keeps the pivot stable.
+			gsap.set(refs.orient, { ...startAsset.orient, svgOrigin: '0 0' });
 			gsap.set(refs.size, { scale: s.objectSize / 100 });
 			gsap.set(refs.fx, { attr: { class: 'gasp-fx' } });
 			gsap.set(refs.fx, transformOf(s.startState));
@@ -229,6 +244,7 @@ export function createEngine() {
 
 		timeline.set(refs.morph, { attr: { d: startAsset.d } }, 0);
 		timeline.set(refs.norm, { ...startAsset.norm }, 0);
+		timeline.set(refs.orient, { ...startAsset.orient }, 0);
 		timeline.set(refs.size, { scale: s.objectSize / 100 }, 0);
 
 		let shape = startAsset;
@@ -271,6 +287,21 @@ export function createEngine() {
 					{ ...targetAsset.norm, duration: win.duration, ease: stop.ease, immediateRender: false },
 					win.at
 				);
+				// Two assets can be drawn facing different ways; ease between their
+				// corrections rather than snapping mid-morph.
+				if (refs.orient && !sameOrient(fromShape.orient, targetAsset.orient)) {
+					timeline.fromTo(
+						refs.orient,
+						pick(fromShape.orient, ORIENT_KEYS),
+						{
+							...pick(targetAsset.orient, ORIENT_KEYS),
+							duration: win.duration,
+							ease: stop.ease,
+							immediateRender: false
+						},
+						win.at
+					);
+				}
 				shape = targetAsset;
 			}
 

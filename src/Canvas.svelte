@@ -20,6 +20,7 @@
 	let lifeEl = $state(null);
 	let fxEl = $state(null);
 	let sizeEl = $state(null);
+	let orientEl = $state(null);
 	let normEl = $state(null);
 	let morphEl = $state(null);
 	let ghostEls = $state([]);
@@ -41,6 +42,18 @@
 	const scene = $derived(activeScene());
 	const layout = $derived(activeLayout());
 	const track = $derived(activeTrack());
+
+	/**
+	 * Preview mode drops the editor's free viewBox and frames the layout exactly,
+	 * with the layout's own fit — so what you see is the crop a visitor gets, not
+	 * wherever you happened to pan to.
+	 */
+	const viewBox = $derived(
+		ui.preview && layout
+			? `0 0 ${layout.viewBox.w} ${layout.viewBox.h}`
+			: `${view.x} ${view.y} ${view.w} ${view.h}`
+	);
+	const aspect = $derived(ui.preview && layout ? `xMidYMid ${layout.fit}` : 'none');
 
 	const pathD = $derived(
 		track ? buildPathD(track.points, track.settings.closedPath, track.settings.loopTension) : ''
@@ -111,7 +124,9 @@
 		trackDeep(track);
 		trackDeep(scene?.loop);
 		const loopKey = `${scene?.loop}|${scene?.yoyo}`;
-		const assetKey = project.assets.map((a) => a.id + a.d).join('|');
+		// `__measured` is the hydration signature: path data plus every adjust
+		// field. Keying on `d` alone missed orientation edits entirely.
+		const assetKey = project.assets.map((a) => a.id + a.__measured).join('|');
 		const ghosts = ghostEls.slice(0, ghostCount);
 
 		if (!ready || !engine || !pathEl || !d || !track || !scene || !assetKey || !loopKey) return;
@@ -125,6 +140,7 @@
 						life: lifeEl,
 						fx: fxEl,
 						size: sizeEl,
+						orient: orientEl,
 						norm: normEl,
 						morph: morphEl,
 						ghosts
@@ -339,15 +355,18 @@
 			: ui.mode === 'edit'
 				? 'cursor-default'
 				: 'cursor-crosshair'}"
-		viewBox="{view.x} {view.y} {view.w} {view.h}"
-		onpointerdown={handlePointerDown}
-		onpointermove={handlePointerMove}
-		onpointerup={handlePointerUp}
-		onpointercancel={handlePointerUp}
-		onwheel={(e) => {
-			e.preventDefault();
-			handleWheel(e);
-		}}
+		{viewBox}
+		preserveAspectRatio={aspect}
+		onpointerdown={ui.preview ? undefined : handlePointerDown}
+		onpointermove={ui.preview ? undefined : handlePointerMove}
+		onpointerup={ui.preview ? undefined : handlePointerUp}
+		onpointercancel={ui.preview ? undefined : handlePointerUp}
+		onwheel={ui.preview
+			? undefined
+			: (e) => {
+					e.preventDefault();
+					handleWheel(e);
+				}}
 	>
 		<defs>
 			<pattern id="grid-cell" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -355,7 +374,18 @@
 			</pattern>
 		</defs>
 
-		{#if layout?.background}
+		{#if ui.preview && layout?.background}
+			<image
+				href={layout.background}
+				x="0"
+				y="0"
+				width={layout.viewBox.w}
+				height={layout.viewBox.h}
+				preserveAspectRatio="xMidYMid slice"
+			/>
+		{:else if ui.preview}
+			<rect x="0" y="0" width={layout?.viewBox.w ?? 0} height={layout?.viewBox.h ?? 0} fill="#0d1117" />
+		{:else if layout?.background}
 			<image
 				href={layout.background}
 				x="0"
@@ -368,6 +398,7 @@
 		{:else}
 			<rect x="-6000" y="-6000" width="14000" height="14000" fill="url(#grid-cell)" />
 		{/if}
+		{#if !ui.preview}
 		{#if layout}
 			<rect
 				x="0"
@@ -497,6 +528,8 @@
 			{/if}
 		{/each}
 
+		{/if}
+
 		<!-- Animated object. Each wrapper owns exactly one concern so GSAP never
 		     has two things fighting over the same transform. -->
 		<g class="pointer-events-none">
@@ -515,18 +548,20 @@
 				<g bind:this={lifeEl} class="gasp-life">
 					<g bind:this={fxEl} id="gasp-body" class="gasp-fx">
 						<g bind:this={sizeEl} class="gasp-size">
-							<g bind:this={normEl} class="gasp-norm">
-								<path
-									bind:this={morphEl}
-									class="gasp-shape"
-									d=""
-									fill="none"
-									stroke="#e6edf3"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									vector-effect="non-scaling-stroke"
-								/>
+							<g bind:this={orientEl} class="gasp-orient">
+								<g bind:this={normEl} class="gasp-norm">
+									<path
+										bind:this={morphEl}
+										class="gasp-shape"
+										d=""
+										fill="none"
+										stroke="#e6edf3"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										vector-effect="non-scaling-stroke"
+									/>
+								</g>
 							</g>
 						</g>
 					</g>
@@ -535,10 +570,12 @@
 		</g>
 	</svg>
 
+	{#if !ui.preview}
 	<div class="pointer-events-none absolute bottom-3 left-3 flex gap-2 text-[10px] text-muted">
 		<span class="rounded bg-panel/90 px-2 py-1">Alt+drag pan · wheel zoom · 0 reset</span>
 		<span class="rounded bg-panel/90 px-2 py-1">Del removes selection · Space plays</span>
 	</div>
+	{/if}
 
 	{#if ui.engineError}
 		<div

@@ -3,8 +3,10 @@
 	import { makeAsset } from './lib/model.js';
 	import { parseSvgFile, hydrateAsset } from './lib/svg.js';
 	import AssetPreview from './ui/AssetPreview.svelte';
+	import AssetAdjust from './ui/AssetAdjust.svelte';
 
 	let error = $state(null);
+	let adjusting = $state(null);
 
 	const layout = $derived(activeLayout());
 	const track = $derived(activeTrack());
@@ -87,41 +89,66 @@
 	<div class="flex flex-col gap-2 p-4">
 		{#each project.assets as asset (asset.id)}
 			<div
-				class="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[13px] {track?.startingAssetId ===
-				asset.id
+				class="rounded-md border px-3 py-2 text-[13px] {track?.startingAssetId === asset.id
 					? 'border-accent/60 bg-accent/10'
 					: 'border-line bg-panel-dark'}"
 			>
-				<div class="flex min-w-0 flex-1 items-center gap-3">
-					<div class="h-6 w-6 shrink-0 text-white [&>svg]:h-full [&>svg]:w-full">
-						<AssetPreview {asset} />
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex min-w-0 flex-1 items-center gap-3">
+						<div class="h-6 w-6 shrink-0 text-white [&>svg]:h-full [&>svg]:w-full">
+							<AssetPreview {asset} />
+						</div>
+						<span class="truncate text-muted">{asset.name}</span>
 					</div>
-					<span class="truncate text-muted">{asset.name}</span>
-				</div>
-				<div class="flex shrink-0 items-center gap-1.5">
-					<button
-						class="rounded px-1.5 py-1 text-[10px] transition-colors {track?.startingAssetId === asset.id
-							? 'bg-accent font-bold text-ink'
-							: 'bg-raise text-muted hover:text-white'}"
-						onclick={() => track && (track.startingAssetId = asset.id)}
-						title="Use as the starting shape"
-					>
-						{track?.startingAssetId === asset.id ? 'start' : 'set'}
-					</button>
-					<button
-						class="text-muted transition-colors hover:text-danger disabled:opacity-30"
-						disabled={project.assets.length <= 1}
-						onclick={() => removeAsset(asset.id)}
-						title="Delete shape"
-						aria-label="Delete shape"
-					>
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-							><path
-								d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-							/></svg
+					<div class="flex shrink-0 items-center gap-1.5">
+						<button
+							class="rounded px-1.5 py-1 text-[10px] transition-colors {track?.startingAssetId ===
+							asset.id
+								? 'bg-accent font-bold text-ink'
+								: 'bg-raise text-muted hover:text-white'}"
+							onclick={() => track && (track.startingAssetId = asset.id)}
+							title="Use as the starting shape"
 						>
-					</button>
+							{track?.startingAssetId === asset.id ? 'start' : 'set'}
+						</button>
+						<button
+							class="transition-colors hover:text-white {adjusting === asset.id
+								? 'text-accent'
+								: 'text-muted'}"
+							onclick={() => (adjusting = adjusting === asset.id ? null : asset.id)}
+							title="Adjust artwork orientation"
+							aria-label="Adjust artwork"
+						>
+							<svg
+								width="13"
+								height="13"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								><path d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /><circle cx="12" cy="12" r="3" /></svg
+							>
+						</button>
+						<button
+							class="text-muted transition-colors hover:text-danger disabled:opacity-30"
+							disabled={project.assets.length <= 1}
+							onclick={() => removeAsset(asset.id)}
+							title="Delete shape"
+							aria-label="Delete shape"
+						>
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+								><path
+									d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+								/></svg
+							>
+						</button>
+					</div>
 				</div>
+
+				{#if adjusting === asset.id}
+					<AssetAdjust {asset} />
+				{/if}
 			</div>
 		{/each}
 

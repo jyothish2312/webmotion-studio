@@ -4,7 +4,7 @@
 	import Inspector from './Inspector.svelte';
 	import AssetPanel from './AssetPanel.svelte';
 	import ExportDialog from './ExportDialog.svelte';
-	import { project, serialize, load, hydrateAssets, resetSelection } from './lib/state.svelte.js';
+	import { project, ui, serialize, load, hydrateAssets, resetSelection } from './lib/state.svelte.js';
 	import { onMount } from 'svelte';
 
 	let showExport = $state(false);
@@ -66,6 +66,15 @@
 			{#if importError}
 				<span class="text-danger">{importError}</span>
 			{/if}
+			<button
+				class="rounded-md border px-3 py-1.5 transition-colors {ui.preview
+					? 'border-accent bg-accent/10 text-accent'
+					: 'border-line bg-raise hover:border-accent'}"
+				onclick={() => (ui.preview = !ui.preview)}
+				title="Hide the editor chrome and frame the layout as a visitor sees it"
+			>
+				{ui.preview ? 'Exit preview' : 'Preview'}
+			</button>
 			<label
 				class="cursor-pointer rounded-md border border-line bg-raise px-3 py-1.5 transition-colors hover:border-accent"
 			>
@@ -83,12 +92,14 @@
 		</div>
 	</header>
 
-	<main class="grid min-h-0 grid-cols-[248px_1fr_300px]">
-		<AssetPanel />
+	<main
+		class="grid min-h-0 {ui.preview ? 'grid-cols-[1fr]' : 'grid-cols-[248px_1fr_300px]'}"
+	>
+		{#if !ui.preview}<AssetPanel />{/if}
 		<section class="relative min-h-0 bg-ink">
 			<Canvas />
 		</section>
-		<Inspector />
+		{#if !ui.preview}<Inspector />{/if}
 	</main>
 
 	<Timeline />

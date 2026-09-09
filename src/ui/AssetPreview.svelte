@@ -1,8 +1,9 @@
 <script>
-	import { CANONICAL_SIZE, measurePath, normalizeFrom } from '../lib/svg.js';
+	import { CANONICAL_SIZE, measurePath, normalizeFrom, orientFrom } from '../lib/svg.js';
 
 	/**
-	 * Renders an asset in the canonical box.
+	 * Renders an asset in the canonical box, with the author's orientation
+	 * correction applied — so the library thumbnail matches what lands on stage.
 	 *
 	 * This is a component rather than an interpolated string fed to {@html} on
 	 * purpose: `asset.d` can come straight out of an imported project file, and
@@ -13,6 +14,7 @@
 
 	const half = CANONICAL_SIZE / 2;
 	const norm = $derived(asset.norm ?? normalizeFrom(measurePath(asset.d)));
+	const orient = $derived(asset.orient ?? orientFrom(asset.adjust ?? {}));
 </script>
 
 <svg
@@ -24,7 +26,12 @@
 	stroke-linejoin="round"
 	aria-hidden="true"
 >
-	<g transform="translate({norm.x} {norm.y}) scale({norm.scale})">
-		<path d={asset.d} />
+	<!-- Outer wrapper mirrors .gasp-orient, inner mirrors .gasp-norm. -->
+	<g
+		transform="translate({orient.x} {orient.y}) rotate({orient.rotation}) scale({orient.scaleX} {orient.scaleY})"
+	>
+		<g transform="translate({norm.x} {norm.y}) scale({norm.scale})">
+			<path d={asset.d} />
+		</g>
 	</g>
 </svg>
