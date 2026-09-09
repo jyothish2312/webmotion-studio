@@ -5,6 +5,7 @@
 		EASES,
 		selectedMarker,
 		activeScene,
+		activeLayout,
 		activeTrack
 	} from './lib/state.svelte.js';
 	import Section from './ui/Section.svelte';
@@ -14,8 +15,20 @@
 
 	const marker = $derived(selectedMarker());
 	const scene = $derived(activeScene());
+	const layout = $derived(activeLayout());
 	const track = $derived(activeTrack());
 	const settings = $derived(track?.settings ?? null);
+
+	/** `undefined` in the model means "no bound"; the inputs use empty string. */
+	function bound(value) {
+		return value == null ? '' : String(value);
+	}
+	function setBound(key, raw) {
+		const n = Number(raw);
+		if (raw === '' || !Number.isFinite(n)) delete layout.match[key];
+		else layout.match[key] = n;
+		layout.match = { ...layout.match };
+	}
 
 	const MORPH_WHEN = [
 		{ value: 'hold', label: 'During the hold — the pickup' },
@@ -157,6 +170,55 @@
 					hint="Play forwards then backwards instead of jumping back to the start."
 				/>
 			{/if}
+		</Section>
+
+		<Section
+			title="Layout"
+			hint="The stage for this breakpoint. Layouts are matched in tab order — first match wins, and the last one is the fallback."
+		>
+			<label class="mb-3 block">
+				<span class="field-label">Name</span>
+				<input type="text" bind:value={layout.name} class="field" />
+			</label>
+			<div class="mb-3 grid grid-cols-2 gap-2">
+				<label class="block">
+					<span class="field-label">Stage width</span>
+					<input type="number" min="1" bind:value={layout.viewBox.w} class="field" />
+				</label>
+				<label class="block">
+					<span class="field-label">Stage height</span>
+					<input type="number" min="1" bind:value={layout.viewBox.h} class="field" />
+				</label>
+			</div>
+			<div class="mb-3 grid grid-cols-2 gap-2">
+				<label class="block">
+					<span class="field-label">Min container px</span>
+					<input
+						type="number"
+						class="field"
+						placeholder="any"
+						value={bound(layout.match.minWidth)}
+						oninput={(e) => setBound('minWidth', e.currentTarget.value)}
+					/>
+				</label>
+				<label class="block">
+					<span class="field-label">Max container px</span>
+					<input
+						type="number"
+						class="field"
+						placeholder="any"
+						value={bound(layout.match.maxWidth)}
+						oninput={(e) => setBound('maxWidth', e.currentTarget.value)}
+					/>
+				</label>
+			</div>
+			<label class="block">
+				<span class="field-label">Fit</span>
+				<select bind:value={layout.fit} class="field">
+					<option value="slice">Cover — fill the container, crop the edges</option>
+					<option value="meet">Contain — show it all, letterbox</option>
+				</select>
+			</label>
 		</Section>
 
 		<Section title="Track" hint="This object only.">

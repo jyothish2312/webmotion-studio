@@ -1,7 +1,7 @@
 import { hydrateAsset } from './svg.js';
 import { defaultProject, migrate, SCHEMA_VERSION } from './model.js';
 
-export { EASES, TRIGGERS } from './model.js';
+export { EASES, TRIGGERS, DEVICES, pickLayout } from './model.js';
 
 export const project = $state(defaultProject());
 
@@ -13,10 +13,13 @@ export const ui = $state({
 	selectedMarkerId: null,
 	selectedPointIndex: null,
 	renamingTrackId: null,
+	renamingLayoutId: null,
 
 	// editing
 	mode: 'edit',
 	preview: false,
+	/** Preview frame width in CSS px; null means fill the canvas. */
+	previewDevice: 'fit',
 
 	// transport (written by the engine every frame — read-only for the UI)
 	isPlaying: false,
@@ -50,6 +53,40 @@ export function activeLayout() {
 	const scene = activeScene();
 	if (!scene) return null;
 	return scene.layouts.find((l) => l.id === ui.activeLayoutId) ?? scene.layouts[0] ?? null;
+}
+
+/** Adds a layout to the active scene and switches to it. */
+export function addLayout(layout) {
+	const scene = activeScene();
+	if (!scene) return null;
+	scene.layouts = [...scene.layouts, layout];
+	ui.activeLayoutId = layout.id;
+	ui.selectedTrackId = layout.tracks[0]?.id ?? null;
+	ui.selectedMarkerId = null;
+	return layout;
+}
+
+export function removeLayout(id) {
+	const scene = activeScene();
+	if (!scene || scene.layouts.length <= 1) return;
+	scene.layouts = scene.layouts.filter((l) => l.id !== id);
+	if (ui.activeLayoutId === id) {
+		ui.activeLayoutId = scene.layouts[0].id;
+		ui.selectedTrackId = scene.layouts[0].tracks[0]?.id ?? null;
+	}
+	ui.selectedMarkerId = null;
+}
+
+export function moveLayout(id, delta) {
+	const scene = activeScene();
+	if (!scene) return;
+	const from = scene.layouts.findIndex((l) => l.id === id);
+	const to = from + delta;
+	if (from < 0 || to < 0 || to >= scene.layouts.length) return;
+	const next = [...scene.layouts];
+	const [moved] = next.splice(from, 1);
+	next.splice(to, 0, moved);
+	scene.layouts = next;
 }
 
 export function activeTracks() {

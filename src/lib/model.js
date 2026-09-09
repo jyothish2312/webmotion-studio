@@ -197,6 +197,38 @@ export function makeLayout(over = {}) {
 	};
 }
 
+/**
+ * Chooses the layout for a container of this size.
+ *
+ * Ordered list, first match wins, and the last layout is the fallback — so a
+ * layout with an empty `match` should sit last. The editor's preview and the
+ * page runtime both go through here, which is what makes the preview faithful.
+ *
+ * Pure: no DOM. Takes measurements, not elements.
+ */
+export function pickLayout(scene, width, height) {
+	const layouts = scene?.layouts ?? [];
+	if (!layouts.length) return null;
+	const aspect = height > 0 ? width / height : 1;
+
+	for (const layout of layouts) {
+		const m = layout.match ?? {};
+		if (m.minWidth != null && width < m.minWidth) continue;
+		if (m.maxWidth != null && width > m.maxWidth) continue;
+		if (m.aspect && (aspect < m.aspect[0] || aspect > m.aspect[1])) continue;
+		return layout;
+	}
+	return layouts[layouts.length - 1];
+}
+
+/** Preview frame widths, and the shape each one stands for. */
+export const DEVICES = [
+	{ id: 'fit', label: 'Fit', width: null },
+	{ id: 'desktop', label: 'Desktop', width: 1440 },
+	{ id: 'tablet', label: 'Tablet', width: 834 },
+	{ id: 'mobile', label: 'Mobile', width: 390 }
+];
+
 export const TRIGGERS = [
 	{ value: 'inview-once', label: 'Play once when it scrolls into view' },
 	{ value: 'inview', label: 'Play on enter, reset on leave' },

@@ -8,7 +8,9 @@
 		activeScene,
 		activeLayout,
 		activeTrack,
-		visibleTracks
+		visibleTracks,
+		pickLayout,
+		DEVICES
 	} from './lib/state.svelte.js';
 	import TrackObject from './TrackObject.svelte';
 	import { makeMarker, makePoint } from './lib/model.js';
@@ -16,6 +18,7 @@
 	import { createSceneRenderer } from './lib/engine.js';
 
 	let host = $state(null);
+	let frameEl = $state(null);
 	let svgEl = $state(null);
 	/** Per-track element refs, keyed by track id. */
 	let pathEls = $state({});
@@ -52,7 +55,18 @@
 	const unit = $derived(boxW > 0 ? view.w / boxW : 1);
 
 	const scene = $derived(activeScene());
-	const layout = $derived(activeLayout());
+
+	/** The frame the preview is constrained to, or null to fill the canvas. */
+	const deviceWidth = $derived(DEVICES.find((d) => d.id === ui.previewDevice)?.width ?? null);
+
+	/**
+	 * While previewing, the layout is chosen the same way the page runtime will
+	 * choose it — by measuring the container. That is what makes the preview
+	 * faithful rather than a separate code path that can drift.
+	 */
+	const layout = $derived(
+		ui.preview ? (pickLayout(scene, boxW, boxH) ?? activeLayout()) : activeLayout()
+	);
 	const track = $derived(activeTrack());
 	const tracks = $derived(visibleTracks());
 
@@ -101,7 +115,7 @@
 			// Preserve the horizontal span, re-derive height from the new aspect.
 			view.h = view.w * (r.height / r.width);
 		});
-		ro.observe(host);
+		ro.observe(frameEl);
 		ready = true;
 
 		return () => {
@@ -368,7 +382,14 @@
 
 <svelte:window onkeydown={handleKey} />
 
-<div bind:this={host} class="relative h-full w-full overflow-hidden bg-ink">
+<div bind:this={host} class="relative grid h-full w-full place-items-stretch overflow-hidden bg-ink">
+	<div
+		bind:this={frameEl}
+		class="relative h-full w-full justify-self-center overflow-hidden {ui.preview && deviceWidth
+			? 'ring-1 ring-line'
+			: ''}"
+		style={ui.preview && deviceWidth ? `max-width:${deviceWidth}px` : ''}
+	>
 	<svg
 		bind:this={svgEl}
 		role="application"
@@ -585,6 +606,18 @@
 		<span class="rounded bg-panel/90 px-2 py-1">Alt+drag pan · wheel zoom · 0 reset</span>
 		<span class="rounded bg-panel/90 px-2 py-1">Del removes selection · Space plays</span>
 	</div>
+	{/if}
+
+	</div>
+
+	{#if ui.preview && layout}
+		<div
+			class="pointer-events-none absolute top-2 right-3 rounded bg-panel/90 px-2 py-1 font-mono text-[10px] text-muted"
+			data-preview-layout={layout.name}
+			data-preview-width={Math.round(boxW)}
+		>
+			{layout.name} · {layout.viewBox.w}×{layout.viewBox.h} · {Math.round(boxW)}px
+		</div>
 	{/if}
 
 	{#if ui.engineError}

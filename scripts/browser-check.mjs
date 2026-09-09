@@ -361,6 +361,51 @@ await wait(800);
 const backToOne = await evaluate(`document.querySelectorAll('.gasp-shape').length`);
 check('deleting a track restores the single-object scene', backToOne === 1, `${backToOne} shapes`);
 
+// --- layouts --------------------------------------------------------------
+// A new layout copies the current tracks, and preview picks the layout by
+// measuring the container — the same call the page runtime makes.
+const layoutsBefore = await evaluate(`document.querySelectorAll('[title*="the match order"], [title*="×"]').length`);
+await evaluate(`(() => {
+  const b = [...document.querySelectorAll('button')].find(b => b.title === 'Duplicate the current tracks into a new layout');
+  b.click();
+})()`);
+await wait(900);
+const afterAdd = await evaluate(`({
+  tabs: [...document.querySelectorAll('button')].filter(b => /^(desktop|tablet|mobile)/.test(b.textContent.trim())).map(b => b.textContent.trim().split(' ')[0]),
+  shapes: document.querySelectorAll('.gasp-shape').length
+})`);
+check('adding a layout gives a second tab', afterAdd?.tabs.length >= 2, JSON.stringify(afterAdd?.tabs));
+check('the new layout inherits the tracks it was duplicated from', afterAdd?.shapes >= 1, `${afterAdd?.shapes} shapes`);
+
+// Narrow the preview frame and confirm the picker swaps layouts.
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Preview').click()`);
+await wait(500);
+const readBadge = `(() => {
+  const el = document.querySelector('[data-preview-layout]');
+  const svg = document.querySelector('svg[role=application]');
+  return el ? { layout: el.dataset.previewLayout, width: +el.dataset.previewWidth, viewBox: svg.getAttribute('viewBox') } : null;
+})()`;
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Desktop').click()`);
+await wait(700);
+const wide = await evaluate(readBadge);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Mobile').click()`);
+await wait(800);
+const narrow = await evaluate(readBadge);
+
+check('preview reports which layout the picker chose', !!wide?.layout && !!narrow?.layout, `${JSON.stringify(wide)} | ${JSON.stringify(narrow)}`);
+check('narrowing the preview frame narrows the measured stage', narrow?.width < wide?.width, `${wide?.width}px -> ${narrow?.width}px`);
+check('a narrow container selects a different layout', wide?.layout !== narrow?.layout, `${wide?.layout} -> ${narrow?.layout}`);
+check('the canvas frames the chosen layout viewBox', wide?.viewBox !== narrow?.viewBox, `${wide?.viewBox} -> ${narrow?.viewBox}`);
+
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Fit').click()`);
+await wait(300);
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Exit preview').click()`);
+await wait(500);
+
+// Back to a single layout so later checks read the original scene.
+await evaluate(`(() => { const b = [...document.querySelectorAll('button[title="Delete layout"]')]; if (b.length) b[0].click(); })()`);
+await wait(700);
+
 // --- untrusted project file ----------------------------------------------
 // `asset.d` is written verbatim by load(). It must never reach the DOM as
 // markup — asset previews render it as an attribute, not as {@html}.

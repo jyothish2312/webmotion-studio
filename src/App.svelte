@@ -4,6 +4,7 @@
 	import Inspector from './Inspector.svelte';
 	import AssetPanel from './AssetPanel.svelte';
 	import ExportDialog from './ExportDialog.svelte';
+	import LayoutTabs from './LayoutTabs.svelte';
 	import { project, ui, serialize, load, hydrateAssets, resetSelection } from './lib/state.svelte.js';
 	import { onMount } from 'svelte';
 
@@ -96,8 +97,11 @@
 		class="grid min-h-0 {ui.preview ? 'grid-cols-[1fr]' : 'grid-cols-[248px_1fr_300px]'}"
 	>
 		{#if !ui.preview}<AssetPanel />{/if}
-		<section class="relative min-h-0 bg-ink">
-			<Canvas />
+		<section class="grid min-h-0 grid-rows-[auto_1fr] bg-ink">
+			<LayoutTabs />
+			<div class="relative min-h-0">
+				<Canvas />
+			</div>
 		</section>
 		{#if !ui.preview}<Inspector />{/if}
 	</main>
