@@ -1,6 +1,7 @@
 <script>
 	import { project, ui } from './lib/state.svelte.js';
-	import { parseSvgFile, hydrateAsset, previewSvg } from './lib/svg.js';
+	import { parseSvgFile, hydrateAsset } from './lib/svg.js';
+	import AssetPreview from './ui/AssetPreview.svelte';
 
 	let error = $state(null);
 
@@ -83,7 +84,7 @@
 			>
 				<div class="flex min-w-0 flex-1 items-center gap-3">
 					<div class="h-6 w-6 shrink-0 text-white [&>svg]:h-full [&>svg]:w-full">
-						{@html previewSvg(asset)}
+						<AssetPreview {asset} />
 					</div>
 					<span class="truncate text-muted">{asset.name}</span>
 				</div>

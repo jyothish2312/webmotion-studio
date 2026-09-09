@@ -105,7 +105,6 @@ export function createEngine() {
 	let history = [];
 	let recording = false;
 	let onFrame = null;
-	let generation = 0;
 
 	/**
 	 * Pushes the current path position onto the visible objects. The lead object
@@ -168,17 +167,21 @@ export function createEngine() {
 	}
 
 	function build(nextRefs, project, { restore = 0, playing = false } = {}) {
-		const token = ++generation;
 		refs = nextRefs;
 		if (!refs?.path || !refs.placer || !refs.morph) return null;
 
-		teardown();
-
+		// Everything that can bail out is resolved BEFORE teardown. Returning after
+		// teardown would leave the engine dead with no timeline and no error, and
+		// the caller would keep showing a stale duration.
 		const s = project.settings;
 		const assets = project.assets;
 		const byId = (id) => assets.find((a) => a.id === id);
 		const startAsset = byId(s.startingAssetId) ?? assets[0];
-		if (!startAsset?.norm) return null;
+		if (!startAsset?.norm) {
+			throw new Error('Starting shape has no measurements yet — asset not hydrated.');
+		}
+
+		teardown();
 
 		plan = planStops(project);
 		trail = s.trail;
@@ -212,8 +215,13 @@ export function createEngine() {
 			gsap.set(refs.morph, { attr: { d: startAsset.d } });
 			gsap.set(refs.norm, { ...startAsset.norm });
 			gsap.set(refs.size, { scale: s.objectSize / 100 });
+			gsap.set(refs.fx, { attr: { class: 'gasp-fx' } });
 			gsap.set(refs.fx, transformOf(s.startState));
 			gsap.set(refs.morph, paintOf(s.startState));
+			// Killing a tween leaves its last rendered values on the element, so any
+			// wrapper whose driving tweens might not be rebuilt has to be reset by
+			// hand — otherwise turning idle life off freezes the object mid-bob.
+			if (refs.life) gsap.set(refs.life, { x: 0, y: 0, rotation: 0, scale: 1 });
 		};
 		baseline();
 
@@ -289,8 +297,6 @@ export function createEngine() {
 
 		buildLife(project);
 
-		if (token !== generation) return null;
-
 		timeline.pause(0);
 		frame();
 		if (restore > 0) {
@@ -300,7 +306,12 @@ export function createEngine() {
 		}
 		setPlaying(playing);
 
-		return { stops: plan.stops, duration: plan.duration || timeline.duration() };
+		// A morph can legitimately outrun the stop it belongs to (a long 'custom'
+		// morph on a short hold), which makes the real timeline longer than the sum
+		// of holds and travels. Report the longer of the two, or the scrubber's
+		// readout and its marker ticks are measured against the wrong total.
+		plan.duration = Math.max(plan.duration, timeline.duration());
+		return { stops: plan.stops, duration: plan.duration };
 	}
 
 	/**
@@ -394,7 +405,6 @@ export function createEngine() {
 			onFrame = fn;
 		},
 		destroy() {
-			generation++;
 			teardown();
 			onFrame = null;
 		}

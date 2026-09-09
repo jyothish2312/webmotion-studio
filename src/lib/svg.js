@@ -114,14 +114,9 @@ export function parseSvgFile(text, fallbackName = 'asset') {
 	return { name: fallbackName, d };
 }
 
-/** Inline preview markup for the asset list, drawn in the canonical box. */
-export function previewSvg(asset) {
-	const n = asset.norm ?? normalizeFrom(measurePath(asset.d));
-	const half = CANONICAL_SIZE / 2;
-	const transform = `translate(${n.x} ${n.y}) scale(${n.scale})`;
-	return (
-		`<svg viewBox="${-half} ${-half} ${CANONICAL_SIZE} ${CANONICAL_SIZE}" fill="none" ` +
-		`stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
-		`<g transform="${transform}"><path d="${asset.d}"/></g></svg>`
-	);
-}
+/*
+ * Asset previews are rendered by `ui/AssetPreview.svelte`, not built as a markup
+ * string here. `asset.d` can arrive verbatim from an imported project file, and
+ * feeding that to {@html} let a crafted `d` close the attribute and inject
+ * arbitrary nodes. Svelte escapes attribute values; string concatenation did not.
+ */

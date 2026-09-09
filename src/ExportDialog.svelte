@@ -21,10 +21,25 @@
 				: buildStandaloneHtml(project)
 	);
 
+	let copyError = $state(null);
+
 	async function copy() {
-		await navigator.clipboard.writeText(code);
-		copied = true;
-		setTimeout(() => (copied = false), 1400);
+		copyError = null;
+		try {
+			// Unavailable outside a secure context — which includes reaching the dev
+			// server over a LAN IP on plain HTTP.
+			if (!navigator.clipboard?.writeText) throw new Error('needs https or localhost');
+			await navigator.clipboard.writeText(code);
+			copied = true;
+			setTimeout(() => (copied = false), 1400);
+		} catch (err) {
+			copyError = `Copy unavailable (${err.message}) — use Download.`;
+			setTimeout(() => (copyError = null), 4000);
+		}
+	}
+
+	function onKeydown(event) {
+		if (event.key === 'Escape') onclose?.();
 	}
 
 	function download() {
@@ -40,7 +55,15 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-8">
+<svelte:window onkeydown={onKeydown} />
+
+<div
+	data-modal
+	role="dialog"
+	aria-modal="true"
+	aria-label="Export code"
+	class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-8"
+>
 	<div class="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-line bg-panel">
 		<div class="flex items-center justify-between border-b border-line px-4 py-3">
 			<div class="flex gap-1">
@@ -54,6 +77,7 @@
 				{/each}
 			</div>
 			<div class="flex items-center gap-2">
+				{#if copyError}<span class="text-[10px] text-danger">{copyError}</span>{/if}
 				<button
 					class="rounded-md border border-line bg-raise px-3 py-1.5 text-xs transition-colors hover:border-accent"
 					onclick={copy}>{copied ? 'Copied' : 'Copy'}</button

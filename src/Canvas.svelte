@@ -146,7 +146,10 @@
 		view.x = p.x - (p.x - view.x) * factor;
 		view.y = p.y - (p.y - view.y) * factor;
 		view.w = next;
-		view.h *= factor;
+		// Re-derive rather than multiply: the exact screen<->SVG mapping depends on
+		// the viewBox aspect matching the container's, and repeated multiplication
+		// drifts away from it.
+		view.h = boxW > 0 ? next * (boxH / boxW) : next;
 	}
 
 	function resetView() {
@@ -274,6 +277,11 @@
 		if (event.target instanceof HTMLInputElement) return;
 		if (event.target instanceof HTMLTextAreaElement) return;
 		if (event.target instanceof HTMLSelectElement) return;
+		// Never steal a browser shortcut: Ctrl+P must print, Cmd+V must paste.
+		if (event.ctrlKey || event.metaKey) return;
+		// A modal owns the keyboard while it is open.
+		if (event.target instanceof Element && event.target.closest('[data-modal]')) return;
+		if (document.querySelector('[data-modal]')) return;
 
 		if (event.key === 'Delete' || event.key === 'Backspace') {
 			if (ui.selectedMarkerId) {
