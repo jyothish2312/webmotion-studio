@@ -121,7 +121,7 @@ export function previewSvg(asset) {
 	const transform = `translate(${n.x} ${n.y}) scale(${n.scale})`;
 	return (
 		`<svg viewBox="${-half} ${-half} ${CANONICAL_SIZE} ${CANONICAL_SIZE}" fill="none" ` +
-		`stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">` +
+		`stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
 		`<g transform="${transform}"><path d="${asset.d}"/></g></svg>`
 	);
 }
