@@ -9,6 +9,7 @@
 		moveTrack
 	} from './lib/state.svelte.js';
 	import { makeTrack } from './lib/model.js';
+	import Section from './ui/Section.svelte';
 
 	const layout = $derived(activeLayout());
 	const selected = $derived(activeTrack());
@@ -37,15 +38,12 @@
 	}
 </script>
 
-<div class="border-b border-line px-4 py-2.5 text-[11px] font-bold tracking-wider text-muted">
-	TRACKS
-</div>
-
-<div class="flex flex-col gap-1 border-b border-line p-3">
+<Section title="Tracks" id="tracks" badge={tracks.length}>
+	<div class="flex flex-col gap-1">
 	{#each tracks as track, i (track.id)}
 		{@const isSelected = track.id === selected?.id}
 		<div
-			class="flex items-center gap-1 rounded-md border px-2 py-1.5 text-[12px] transition-colors {isSelected
+			class="group flex items-center gap-0.5 rounded-md border px-2 py-1.5 text-[12px] transition-colors {isSelected
 				? 'border-accent/60 bg-accent/10'
 				: 'border-line bg-panel-dark'}"
 		>
@@ -57,7 +55,7 @@
 					ui.selectedPointIndex = null;
 				}}
 				ondblclick={() => (ui.renamingTrackId = track.id)}
-				title="Select this track"
+				title="{track.name} — click to select, double-click to rename"
 			>
 				{#if ui.renamingTrackId === track.id}
 					<!-- svelte-ignore a11y_autofocus -->
@@ -73,53 +71,67 @@
 				{/if}
 			</button>
 
-			<span class="shrink-0 font-mono text-[9px] text-muted tabular-nums">
-				{track.offset > 0 ? `+${track.offset.toFixed(1)}s` : ''}
-			</span>
+			{#if track.offset > 0}
+				<span
+					class="shrink-0 rounded bg-raise px-1 font-mono text-[9px] text-muted tabular-nums"
+					title="Starts {track.offset}s into the scene">+{track.offset.toFixed(1)}s</span
+				>
+			{/if}
 
+			<!-- Always reachable: which tracks you can see. -->
 			<button
 				class="shrink-0 px-1 text-[10px] transition-colors {track.solo
 					? 'text-point'
-					: 'text-muted hover:text-white'}"
+					: 'text-muted/60 hover:text-white'}"
 				onclick={() => (track.solo = !track.solo)}
-				title="Solo — show only this track">S</button
+				title={track.solo ? 'Stop soloing' : 'Solo — show only this track'}
+				aria-label="Solo track">S</button
 			>
 			<button
 				class="shrink-0 px-1 text-[10px] transition-colors {track.hidden
 					? 'text-danger'
-					: 'text-muted hover:text-white'}"
+					: 'text-muted/60 hover:text-white'}"
 				onclick={() => (track.hidden = !track.hidden)}
 				title={track.hidden ? 'Show track' : 'Hide track'}
+				aria-label={track.hidden ? 'Show track' : 'Hide track'}
 			>
 				{track.hidden ? '◌' : '●'}
 			</button>
-			<button
-				class="shrink-0 px-0.5 text-[10px] text-muted transition-colors hover:text-white disabled:opacity-25"
-				disabled={i === 0}
-				onclick={() => moveTrack(track.id, -1)}
-				title="Move up"
-				aria-label="Move up">▲</button
+
+			<!-- Housekeeping stays out of the way until you go looking for it. -->
+			<span
+				class="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 {isSelected
+					? 'opacity-100'
+					: ''}"
 			>
-			<button
-				class="shrink-0 px-0.5 text-[10px] text-muted transition-colors hover:text-white disabled:opacity-25"
-				disabled={i === tracks.length - 1}
-				onclick={() => moveTrack(track.id, 1)}
-				title="Move down"
-				aria-label="Move down">▼</button
-			>
-			<button
-				class="shrink-0 px-0.5 text-[10px] text-muted transition-colors hover:text-accent"
-				onclick={() => duplicate(track)}
-				title="Duplicate track"
-				aria-label="Duplicate track">⧉</button
-			>
-			<button
-				class="shrink-0 px-0.5 text-[10px] text-muted transition-colors hover:text-danger disabled:opacity-25"
-				disabled={tracks.length <= 1}
-				onclick={() => removeTrack(track.id)}
-				title="Delete track"
-				aria-label="Delete track">✕</button
-			>
+				<button
+					class="px-0.5 text-[10px] text-muted transition-colors hover:text-white disabled:opacity-25"
+					disabled={i === 0}
+					onclick={() => moveTrack(track.id, -1)}
+					title="Move up"
+					aria-label="Move up">▲</button
+				>
+				<button
+					class="px-0.5 text-[10px] text-muted transition-colors hover:text-white disabled:opacity-25"
+					disabled={i === tracks.length - 1}
+					onclick={() => moveTrack(track.id, 1)}
+					title="Move down"
+					aria-label="Move down">▼</button
+				>
+				<button
+					class="px-0.5 text-[10px] text-muted transition-colors hover:text-accent"
+					onclick={() => duplicate(track)}
+					title="Duplicate track"
+					aria-label="Duplicate track">⧉</button
+				>
+				<button
+					class="px-0.5 text-[10px] text-muted transition-colors hover:text-danger disabled:opacity-25"
+					disabled={tracks.length <= 1}
+					onclick={() => removeTrack(track.id)}
+					title="Delete track"
+					aria-label="Delete track">✕</button
+				>
+			</span>
 		</div>
 	{/each}
 
@@ -129,7 +141,8 @@
 	>
 		+ Add track
 	</button>
-	<p class="hint mt-1">
-		Tracks in a scene share one timeline — drag a lane in the scrubber to set when it starts.
-	</p>
-</div>
+		<p class="hint mt-1">
+			Tracks in a scene share one timeline — drag a lane in the scrubber to set when it starts.
+		</p>
+	</div>
+</Section>

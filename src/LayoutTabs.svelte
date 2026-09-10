@@ -71,6 +71,13 @@
 <div class="flex items-center gap-1 border-b border-line bg-panel px-3 py-1.5 text-[11px]">
 	<span class="mr-1 font-bold tracking-wider text-muted">LAYOUT</span>
 
+	{#if ui.preview}
+		<!-- Previewing: the tabs would let you edit a layout you cannot see, so
+		     only the frame picker stays. -->
+		<span class="rounded-md border border-line bg-raise px-2 py-1 text-muted">
+			{layout?.name ?? '—'}
+		</span>
+	{:else}
 	{#each layouts as l, i (l.id)}
 		<button
 			class="rounded-md border px-2 py-1 transition-colors {l.id === layout?.id
@@ -129,9 +136,11 @@
 	>
 
 	<span class="ml-auto text-[10px] text-muted">first match wins · last is the fallback</span>
+	{/if}
 
 	{#if ui.preview}
-		<div class="ml-3 flex items-center gap-1">
+		<div class="ml-auto flex items-center gap-1">
+			<span class="mr-1 text-[10px] text-muted">Frame</span>
 			{#each DEVICES as device (device.id)}
 				<button
 					class="rounded border px-2 py-0.5 text-[10px] transition-colors {ui.previewDevice ===

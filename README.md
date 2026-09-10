@@ -12,6 +12,16 @@ npm install
 npm run dev
 ```
 
+There is a full guide inside the app — the **?** button in the header, or press
+`?`. It opens by itself the first time you run it.
+
+## Workspace
+
+Every divider drags. Double-click one to reset it, or use **Reset layout**. The
+two side panels collapse from the header buttons, and every section in them
+folds away. Panel sizes and which sections you left open persist locally, so the
+editor keeps the shape you work in — none of it touches the saved project file.
+
 ## The model
 
 ```
@@ -93,6 +103,8 @@ time directly.
 | `src/lib/runtime/` | `gaspRuntime.js` + `GaspScene.svelte` — copy these into the site that hosts the animation. |
 | `src/lib/state.svelte.js` | Project state (Svelte 5 runes), navigation accessors, save/load. |
 | `src/TrackObject.svelte` | One track's wrapper stack, mirrored exactly by the exporter. |
+| `src/lib/panels.svelte.js` | Panel sizes and section state. Workspace preference, not project data, so it persists separately. |
+| `src/lib/helpContent.js` | The in-app guide, as data so it can be searched. |
 
 ### Why nine nested `<g>` wrappers
 
@@ -115,8 +127,8 @@ jitter.
 ## Shortcuts
 
 `V` select · `P` add path point · `M` add marker · `Space` play/pause ·
-`Del` delete selection · `0` reset view · `Alt`+drag pan · wheel zoom ·
-`Alt` while dragging a handle breaks the mirror
+`Del` delete selection · `0` reset view · `?` open the guide ·
+`Alt`+drag pan · wheel zoom · `Alt` while dragging a handle breaks the mirror
 
 ## Putting it on a page
 

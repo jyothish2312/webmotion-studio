@@ -14,6 +14,8 @@
 	import Toggle from './ui/Toggle.svelte';
 	import LookEditor from './ui/LookEditor.svelte';
 
+	let { width = '330px' } = $props();
+
 	const marker = $derived(selectedMarker());
 	const scene = $derived(activeScene());
 	const layout = $derived(activeLayout());
@@ -44,7 +46,11 @@
 	}
 </script>
 
-<aside class="overflow-y-auto border-l border-line bg-panel">
+<aside
+	class="shrink-0 overflow-x-hidden overflow-y-auto border-l border-line bg-panel"
+	style="width: {width}"
+	aria-label="Properties"
+>
 	{#if marker}
 		<div class="flex items-center justify-between border-b border-accent/40 bg-accent/10 px-4 py-2.5">
 			<span class="text-[11px] font-bold tracking-wider text-white">MARKER</span>
@@ -214,6 +220,7 @@
 		</Section>
 
 		<Section
+			open={false}
 			title="Layout"
 			hint="The stage for this breakpoint. Layouts are matched in tab order — first match wins, and the last one is the fallback."
 		>
@@ -321,7 +328,7 @@
 			/>
 		</Section>
 
-		<Section title="Path">
+		<Section title="Path" open={false}>
 			<Toggle label="Close the path" bind:checked={settings.closedPath} />
 			{#if settings.closedPath}
 				<Slider
@@ -335,7 +342,7 @@
 			{/if}
 		</Section>
 
-		<Section title="First segment" hint="From the start of the path up to the first marker.">
+		<Section title="First segment" open={false} hint="From the start of the path up to the first marker.">
 			<Slider
 				label="Hold at start"
 				bind:value={settings.startHold}
@@ -370,6 +377,7 @@
 		</Section>
 
 		<Section
+			open={false}
 			title="Physicality"
 			hint="Procedural secondary motion: springs and noise, not keyframes. It runs on wall-clock time, so a paused frame snaps to its target and stays reproducible."
 		>
@@ -410,6 +418,7 @@
 		</Section>
 
 		<Section
+			open={false}
 			title="Idle life"
 			hint="Continuous secondary motion. Runs on its own clock, independent of the timeline — this is the difference between a sprite sliding along a line and something that feels airborne."
 		>
@@ -449,6 +458,7 @@
 		</Section>
 
 		<Section
+			open={false}
 			title="Motion trail"
 			hint="Ghost copies replaying earlier frames. They bunch up when the object slows and stretch when it accelerates, which reads as speed."
 		>

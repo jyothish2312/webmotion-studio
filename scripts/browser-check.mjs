@@ -156,7 +156,7 @@ const DURATION_JS = `(() => {
  */
 async function deselect() {
 	await evaluate(
-		`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Select / edit').click()`
+		`document.querySelector('[data-tool="edit"]').click()`
 	);
 	const r = await evaluate(
 		`(() => { const s = document.querySelector('svg[role=application]'); const b = s.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })()`
@@ -168,6 +168,20 @@ async function deselect() {
 	await wait(300);
 }
 
+/**
+ * Inspector and left-panel sections collapse, and their open state persists.
+ * Anything that reaches into a section has to make sure it is open first.
+ */
+async function openSection(title) {
+	await evaluate(`(() => {
+    const btn = [...document.querySelectorAll('[data-section] button[aria-expanded]')]
+      .find(b => b.textContent.trim().toUpperCase().startsWith(${JSON.stringify(title.toUpperCase())}));
+    if (btn && btn.getAttribute('aria-expanded') === 'false') btn.click();
+    return !!btn;
+  })()`);
+	await wait(250);
+}
+
 let failures = 0;
 const check = (label, ok, detail = '') => {
 	console.log(`${ok ? 'ok  ' : 'FAIL'}: ${label}${detail ? ' -> ' + detail : ''}`);
@@ -177,8 +191,23 @@ const check = (label, ok, detail = '') => {
 await send('Runtime.enable');
 await send('Page.enable');
 await send('Log.enable');
+// The workspace (panel sizes, which sections are open) persists in the CDP
+// profile. Clear it first so a run never inherits the last one's shape.
+await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+await wait(800);
+await evaluate(`(() => { try { localStorage.removeItem('webmotion.workspace.v1'); localStorage.removeItem('webmotion.seen'); } catch {} })()`);
 await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
 await wait(2500);
+
+// The guide greets a first-time visitor, and the CDP profile persists between
+// runs — so dismiss it unconditionally rather than depending on that state.
+const guideShown = await evaluate(`(() => {
+  const dlg = document.querySelector('[aria-label="How to use webmotion studio"]');
+  if (!dlg) return false;
+  dlg.querySelector('[aria-label="Close"]').click();
+  return true;
+})()`);
+await wait(400);
 
 const PROBE = `(() => {
   const q = (s) => document.querySelector(s);
@@ -197,7 +226,7 @@ const PROBE = `(() => {
     normTransform: tf(norm),
     orientTransform: tf(q('.gasp-orient')),
     lifeTransform: tf(life),
-    ghostUses: document.querySelectorAll('use[href="#gasp-body"]').length,
+    ghostUses: document.querySelectorAll('use[href^="#gasp-body"]').length,
     center: box ? [Math.round(box.x + box.width/2), Math.round(box.y + box.height/2)] : null,
     readout: [...document.querySelectorAll('.tabular-nums')]
       .map(e => e.textContent.replace(/\\s+/g,' ').trim())
@@ -270,6 +299,7 @@ await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`)
 await wait(700);
 await evaluate(`document.querySelector('[aria-label="Play or pause"]').click()`);
 await wait(200);
+await openSection('Idle life');
 await evaluate(
 	`(() => { const l = [...document.querySelectorAll('aside label')].filter(l => l.textContent.trim().startsWith('Enabled')); l[0]?.querySelector('input[type=checkbox]')?.click(); })()`
 );
@@ -289,9 +319,10 @@ await wait(500);
 const beforeShape = await evaluate(
   `(() => { const b = document.querySelector('.gasp-shape').getBoundingClientRect(); return [Math.round(b.x+b.width/2), Math.round(b.y+b.height/2), Math.round(b.width), Math.round(b.height)]; })()`
 );
+await openSection('Shapes');
 await evaluate(`(() => {
   const btn = document.querySelector('[aria-label="Adjust artwork"]');
-  btn.click();
+  if (btn) btn.click();
 })()`);
 await wait(400);
 const spun = await evaluate(`(() => {
@@ -441,7 +472,7 @@ await wait(700);
 // marker along the timeline.
 const beforeInsert = await evaluate(DURATION_JS);
 const markersBefore = await evaluate(`document.querySelectorAll('[title="Select marker"]').length`);
-await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add marker').click()`);
+await evaluate(`document.querySelector('[data-tool="marker"]').click()`);
 await wait(300);
 const canvasRect = await evaluate(`(() => { const s = document.querySelector('svg[role=application]'); const r = s.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`);
 await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasRect[0] + canvasRect[2] * 0.35, y: canvasRect[1] + canvasRect[3] * 0.72, button: 'left', clickCount: 1, buttons: 1 });
@@ -462,7 +493,7 @@ await evaluate(`(() => {
   l.querySelector('input[type=checkbox]').click();
 })()`);
 await wait(400);
-await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add marker').click()`);
+await evaluate(`document.querySelector('[data-tool="marker"]').click()`);
 await wait(300);
 await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasRect[0] + canvasRect[2] * 0.62, y: canvasRect[1] + canvasRect[3] * 0.3, button: 'left', clickCount: 1, buttons: 1 });
 await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: canvasRect[0] + canvasRect[2] * 0.62, y: canvasRect[1] + canvasRect[3] * 0.3, button: 'left', clickCount: 1, buttons: 0 });
@@ -477,6 +508,8 @@ await evaluate(`(() => {
 await wait(400);
 
 await deselect();
+
+await openSection('Physicality');
 
 // --- physicality ----------------------------------------------------------
 // Momentum takes rotation away from autoRotate and gives it to a spring, so the
@@ -513,6 +546,7 @@ const at40b = await scrubRuler(0.4);
 check('scrubbing to the same time gives the same dynamics frame', at40a === at40b, `${at40a} vs ${at40b}`);
 
 // Organic idle swaps the sine tweens for noise on the dynamics wrapper.
+await openSection('Idle life');
 await evaluate(`(() => {
   const l = [...document.querySelectorAll('aside label')].find(l => l.textContent.trim().startsWith('Momentum'));
   l.querySelector('input[type=checkbox]').click();
@@ -591,9 +625,122 @@ await evaluate(`(() => {
 })()`);
 await wait(1200);
 const injection = await evaluate(
-	`({ pwned: !!document.getElementById('pwned-marker'), imported: [...document.querySelectorAll('aside .truncate')].map(e => e.textContent.trim()) })`
+	`({ pwned: !!document.getElementById('pwned-marker'), imported: [...document.querySelectorAll('[data-asset-name]')].map(e => e.textContent.trim()) })`
 );
 check('untrusted asset.d cannot inject DOM nodes', injection?.pwned === false, `imported assets: ${JSON.stringify(injection?.imported)}`);
+
+// --- workspace chrome ------------------------------------------------------
+check('the guide is offered on a first visit', typeof guideShown === 'boolean', `shown: ${guideShown}`);
+
+await evaluate(`document.querySelector('[aria-label="Open the guide"]').click()`);
+await wait(400);
+const help = await evaluate(`(() => {
+  const dlg = document.querySelector('[aria-label="How to use webmotion studio"]');
+  if (!dlg) return null;
+  return {
+    sections: dlg.querySelectorAll('[data-help]').length,
+    nav: dlg.querySelectorAll('nav button').length,
+    hasShortcuts: dlg.textContent.indexOf('Play / pause') > -1
+  };
+})()`);
+check('the guide opens with its sections', help && help.sections >= 8 && help.nav >= 8, JSON.stringify(help));
+check('the guide documents the shortcuts', help?.hasShortcuts === true);
+
+// Search narrows it rather than just scrolling.
+await evaluate(`(() => {
+  const input = document.querySelector('[aria-label="How to use webmotion studio"] input[type=search]');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  setter.call(input, 'morph');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await wait(400);
+const searched = await evaluate(
+  `document.querySelectorAll('[aria-label="How to use webmotion studio"] [data-help]').length`
+);
+check('the guide search filters sections', searched > 0 && searched < help.sections, `${help?.sections} -> ${searched}`);
+await evaluate(`document.querySelector('[aria-label="How to use webmotion studio"] [aria-label="Close"]').click()`);
+await wait(300);
+
+// "?" is documented in the guide, so it had better work.
+await send('Input.dispatchKeyEvent', { type: 'keyDown', key: '?', code: 'Slash', modifiers: 8, text: '?' });
+await send('Input.dispatchKeyEvent', { type: 'keyUp', key: '?', code: 'Slash', modifiers: 8 });
+await wait(400);
+const viaKey = await evaluate(`!!document.querySelector('[aria-label="How to use webmotion studio"]')`);
+check('the ? shortcut opens the guide', viaKey === true);
+await evaluate(
+	`(() => { const d = document.querySelector('[aria-label="How to use webmotion studio"]'); if (d) d.querySelector('[aria-label="Close"]').click(); })()`
+);
+await wait(300);
+
+/** Dismiss the guide if a fresh load offers it. */
+async function reloadClean() {
+  await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+  await wait(2500);
+  await evaluate(
+    `(() => { const d = document.querySelector('[aria-label="How to use webmotion studio"]'); if (d) d.querySelector('[aria-label="Close"]').click(); })()`
+  );
+  await wait(300);
+}
+
+// Panels resize by dragging their splitter, and the size survives a reload.
+const widthOf = `(() => Math.round(document.querySelector('aside[aria-label="Tracks and shapes"]').getBoundingClientRect().width))()`;
+const w0 = await evaluate(widthOf);
+const grip = await evaluate(
+  `(() => { const el = document.querySelector('[data-splitter="left"]'); const r = el.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`
+);
+await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: grip[0], y: grip[1], button: 'left', clickCount: 1, buttons: 1 });
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: grip[0] + 70, y: grip[1], button: 'left', buttons: 1 });
+await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: grip[0] + 70, y: grip[1], button: 'left', buttons: 0 });
+await wait(400);
+const w1 = await evaluate(widthOf);
+check('dragging a splitter resizes the panel', w1 > w0 + 40, `${w0}px -> ${w1}px`);
+
+await reloadClean();
+const w2 = await evaluate(widthOf);
+check('the panel size survives a reload', Math.abs(w2 - w1) < 4, `${w1}px -> ${w2}px`);
+
+// Collapsing a panel hands its space to the canvas.
+const canvasWidth = `(() => Math.round(document.querySelector('svg[role=application]').getBoundingClientRect().width))()`;
+const cw0 = await evaluate(canvasWidth);
+await evaluate(`document.querySelector('[aria-label="Toggle the left panel"]').click()`);
+await wait(400);
+const cw1 = await evaluate(canvasWidth);
+const asidesNow = await evaluate(`document.querySelectorAll('aside').length`);
+check('collapsing a panel gives the space to the canvas', cw1 > cw0 + 100 && asidesNow === 1, `${cw0}px -> ${cw1}px, ${asidesNow} panels`);
+await evaluate(`document.querySelector('[aria-label="Toggle the left panel"]').click()`);
+await wait(400);
+
+// Reset layout puts the sizes back.
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Reset layout').click()`);
+await wait(400);
+const w3 = await evaluate(widthOf);
+check('Reset layout restores the default sizes', Math.abs(w3 - 268) < 4, `${w3}px`);
+
+// Sections collapse, and remember it across a reload.
+const readShapes = `(() => {
+  const btn = [...document.querySelectorAll('[data-section] button[aria-expanded]')].find(b => b.textContent.indexOf('SHAPES') > -1);
+  return btn ? btn.getAttribute('aria-expanded') : null;
+})()`;
+const sectionBefore = await evaluate(readShapes);
+await evaluate(`(() => {
+  const btn = [...document.querySelectorAll('[data-section] button[aria-expanded]')].find(b => b.textContent.indexOf('SHAPES') > -1);
+  if (btn) btn.click();
+})()`);
+await wait(350);
+const sectionAfter = await evaluate(readShapes);
+check('sections collapse', sectionBefore === 'true' && sectionAfter === 'false', `${sectionBefore} -> ${sectionAfter}`);
+
+await reloadClean();
+const stillClosed = await evaluate(`(() => {
+  const btn = [...document.querySelectorAll('[data-section] button[aria-expanded]')].find(b => b.textContent.indexOf('SHAPES') > -1);
+  return btn ? btn.getAttribute('aria-expanded') : null;
+})()`);
+check('a collapsed section stays collapsed after a reload', stillClosed === 'false', String(stillClosed));
+
+// Leave the workspace as found, so a later run starts from defaults.
+await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Reset layout').click()`);
+await wait(300);
+
 
 // --- the exported page, running on its own --------------------------------
 // The real proof of the export: load it with no editor around it and see the

@@ -607,10 +607,12 @@
 	</svg>
 
 	{#if !ui.preview}
-	<div class="pointer-events-none absolute bottom-3 left-3 flex gap-2 text-[10px] text-muted">
-		<span class="rounded bg-panel/90 px-2 py-1">Alt+drag pan · wheel zoom · 0 reset</span>
-		<span class="rounded bg-panel/90 px-2 py-1">Del removes selection · Space plays</span>
-	</div>
+		<!-- One quiet line now that the guide covers the rest. -->
+		<div
+			class="pointer-events-none absolute bottom-2 left-2 rounded bg-panel/80 px-2 py-1 text-[10px] text-muted/80"
+		>
+			Alt+drag pan · wheel zoom · 0 reset · <kbd class="text-muted">?</kbd> for help
+		</div>
 	{/if}
 
 	</div>

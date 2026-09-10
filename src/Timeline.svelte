@@ -88,10 +88,22 @@
 	}
 
 	const atEnd = $derived(ui.progress >= 0.999 && !scene?.loop);
+
+	/** Second markings, at whatever spacing keeps them from colliding. */
+	const rulerTicks = $derived.by(() => {
+		const total = ui.duration;
+		if (!total || total < 0.5) return [];
+		const step = total > 40 ? 10 : total > 16 ? 5 : total > 6 ? 2 : 1;
+		const out = [];
+		for (let t = 0; t <= total + 1e-6; t += step) {
+			out.push({ at: (t / total) * 100, label: `${Math.round(t)}s` });
+		}
+		return out;
+	});
 </script>
 
-<section class="grid h-full grid-cols-[auto_1fr] gap-4 border-t border-line bg-panel px-4">
-	<div class="flex items-center gap-2">
+<section class="grid h-full min-h-0 grid-cols-[auto_1fr] gap-4 bg-panel px-4">
+	<div class="flex items-start gap-2 pt-3">
 		<button
 			class="grid h-9 w-11 place-items-center rounded-md border border-line bg-raise transition-colors hover:bg-accent hover:text-ink"
 			onclick={toggle}
@@ -146,11 +158,14 @@
 		The ruler scrubs; the lanes below select a track and drag its offset. They
 		have to be separate targets: with a single full-width track the lane body
 		covers the whole bar, leaving nowhere to click for a scrub.
+
+		The lane stack scrolls, so adding tracks never pushes the ruler or the
+		transport out of view no matter how short the panel is dragged.
 	-->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		bind:this={trackEl}
-		class="relative flex touch-none flex-col justify-center gap-1 py-1.5 select-none"
+		class="relative flex min-h-0 touch-none flex-col gap-1 py-2 select-none"
 		onpointermove={moveScrub}
 		onpointerup={endDrag}
 		onpointercancel={endDrag}
@@ -166,8 +181,15 @@
 				class="pointer-events-none absolute inset-y-0 left-0 rounded-l-sm bg-accent/25"
 				style="width: {Math.min(100, ui.progress * 100)}%"
 			></div>
+			{#each rulerTicks as t (t.at)}
+				<span
+					class="pointer-events-none absolute top-full mt-0.5 -translate-x-1/2 font-mono text-[8px] text-muted"
+					style="left: {t.at}%">{t.label}</span
+				>
+			{/each}
 		</div>
 
+		<div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pt-2.5">
 		{#each lanes as lane (lane.id)}
 			{@const g = laneGeometry(lane)}
 			{@const isSelected = lane.id === selected?.id}
@@ -218,14 +240,15 @@
 				{/each}
 			</div>
 		{/each}
+		</div>
 
-		<!-- Playhead spans every lane. -->
+		<!-- Playhead spans every lane, with its grip sitting on the ruler. -->
 		<div
-			class="pointer-events-none absolute inset-y-1 w-px -translate-x-1/2 bg-white/80"
+			class="pointer-events-none absolute inset-y-2 w-px -translate-x-1/2 bg-white/70"
 			style="left: {Math.min(100, ui.progress * 100)}%"
 		></div>
 		<div
-			class="pointer-events-none absolute top-0 h-3 w-3 -translate-x-1/2 rounded-full bg-white shadow-md ring-2 ring-ink"
+			class="pointer-events-none absolute top-1.5 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-white shadow-md"
 			style="left: {Math.min(100, ui.progress * 100)}%"
 		></div>
 	</div>

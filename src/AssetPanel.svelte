@@ -1,10 +1,13 @@
 <script>
-	import { project, ui, activeLayout, activeTrack } from './lib/state.svelte.js';
+	import { project, activeLayout, activeTrack } from './lib/state.svelte.js';
 	import { makeAsset } from './lib/model.js';
 	import { parseSvgFile, hydrateAsset } from './lib/svg.js';
 	import AssetPreview from './ui/AssetPreview.svelte';
 	import AssetAdjust from './ui/AssetAdjust.svelte';
 	import TracksList from './TracksList.svelte';
+	import Section from './ui/Section.svelte';
+
+	let { width = '268px' } = $props();
 
 	let error = $state(null);
 	let adjusting = $state(null);
@@ -16,12 +19,6 @@
 	function allTracks() {
 		return project.scenes.flatMap((s) => s.layouts.flatMap((l) => l.tracks));
 	}
-
-	const TOOLS = [
-		{ id: 'edit', label: 'Select / edit', key: 'V' },
-		{ id: 'add', label: 'Add path point', key: 'P' },
-		{ id: 'marker', label: 'Add marker', key: 'M' }
-	];
 
 	async function onSvgUpload(event) {
 		const files = Array.from(event.target.files ?? []);
@@ -62,34 +59,15 @@
 	}
 </script>
 
-<aside class="flex flex-col overflow-y-auto border-r border-line bg-panel">
-	<div class="border-b border-line px-4 py-2.5 text-[11px] font-bold tracking-wider text-muted">
-		TOOLS
-	</div>
-	<div class="flex flex-col gap-1.5 border-b border-line p-4">
-		{#each TOOLS as tool (tool.id)}
-			<button
-				class="flex items-center justify-between rounded-md border px-3 py-2 text-[13px] transition-colors {ui.mode ===
-				tool.id
-					? 'border-accent bg-accent text-ink'
-					: 'border-line bg-raise text-white hover:border-accent'}"
-				onclick={() => (ui.mode = tool.id)}
-			>
-				{tool.label}
-			</button>
-		{/each}
-		<p class="hint mt-1">
-			Drag anchors and their purple handles to shape the path. Alt while dragging a handle breaks
-			the mirror.
-		</p>
-	</div>
-
+<aside
+	class="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-line bg-panel"
+	style="width: {width}"
+	aria-label="Tracks and shapes"
+>
 	<TracksList />
 
-	<div class="border-b border-line px-4 py-2.5 text-[11px] font-bold tracking-wider text-muted">
-		SHAPES
-	</div>
-	<div class="flex flex-col gap-2 p-4">
+	<Section title="Shapes" id="shapes" badge={project.assets.length}>
+		<div class="flex flex-col gap-2">
 		{#each project.assets as asset (asset.id)}
 			<div
 				class="rounded-md border px-3 py-2 text-[13px] {track?.startingAssetId === asset.id
@@ -101,7 +79,7 @@
 						<div class="h-6 w-6 shrink-0 text-white [&>svg]:h-full [&>svg]:w-full">
 							<AssetPreview {asset} />
 						</div>
-						<span class="truncate text-muted">{asset.name}</span>
+						<span class="truncate text-muted" data-asset-name>{asset.name}</span>
 					</div>
 					<div class="flex shrink-0 items-center gap-1.5">
 						<button
@@ -191,11 +169,12 @@
 			{layout?.background ? 'Replace background' : 'Set background'}
 			<input type="file" accept="image/*" class="hidden" onchange={onBackgroundUpload} />
 		</label>
-		{#if layout?.background}
-			<button
-				class="text-left text-[10px] text-muted transition-colors hover:text-danger"
-				onclick={() => layout && (layout.background = null)}>Remove background</button
-			>
-		{/if}
-	</div>
+			{#if layout?.background}
+				<button
+					class="text-left text-[10px] text-muted transition-colors hover:text-danger"
+					onclick={() => layout && (layout.background = null)}>Remove background</button
+				>
+			{/if}
+		</div>
+	</Section>
 </aside>
