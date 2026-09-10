@@ -4,6 +4,7 @@ import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
 import { clamp01 } from './path.js';
 import { ORIENT_KEYS } from './svg.js';
 import { createAngleSpring, createNoise, createSpring, samplePath } from './dynamics.js';
+import { resolveMorph } from './model.js';
 
 gsap.registerPlugin(MotionPathPlugin, MorphSVGPlugin);
 
@@ -65,7 +66,13 @@ export function planStops(track) {
 			state: node.state,
 			morphTarget: node.morphTarget || 'none',
 			morphType: node.morphType || 'hold',
-			morphDuration: Math.max(0.01, Number(node.morphDuration) || 0.5)
+			morphDuration: Math.max(0.01, Number(node.morphDuration) || 0.5),
+			// Carried through so the renderer and the exporter resolve the same
+			// MorphSVG options from the same place.
+			morphStyle: node.morphStyle ?? 'auto',
+			morphMap: node.morphMap,
+			morphRotational: node.morphRotational,
+			morphShapeIndex: node.morphShapeIndex
 		};
 
 		stops.push(stop);
@@ -443,10 +450,7 @@ export function createTrackRenderer() {
 				timeline.to(
 					refs.morph,
 					{
-						morphSVG: {
-							shape: targetAsset.d,
-							type: s.rotationalMorph ? 'rotational' : 'linear'
-						},
+						morphSVG: { shape: targetAsset.d, ...resolveMorph(stop, s) },
 						duration: win.duration,
 						ease: stop.ease,
 						immediateRender: false

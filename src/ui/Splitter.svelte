@@ -59,7 +59,7 @@
 </script>
 
 <div
-	role="separator"
+	role="slider"
 	aria-orientation={vertical ? 'horizontal' : 'vertical'}
 	aria-label={label}
 	aria-valuenow={workspace[target]}

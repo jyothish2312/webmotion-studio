@@ -1,5 +1,6 @@
 import { planStops, planScene, morphWindow } from './engine.js';
 import { buildPathD } from './path.js';
+import { resolveMorph } from './model.js';
 
 // jsDelivr mirrors npm, so the bonus plugins are guaranteed to be present.
 const GSAP_CDN = 'https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist';
@@ -90,9 +91,7 @@ function buildTrackJs({ project, scene, track, index }) {
 			push();
 			push(`tl${k}.set(shape${k}, { attr: { d: ${j(shape.d)} } }, ${n(win.at)})`);
 			push(`  .to(shape${k}, {`);
-			push(
-				`    morphSVG: { shape: ${j(targetAsset.d)}, type: ${j(s.rotationalMorph ? 'rotational' : 'linear')} },`
-			);
+			push(`    morphSVG: { shape: ${j(targetAsset.d)}, ...${j(resolveMorph(stop, s))} },`);
 			push(`    duration: ${n(win.duration)}, ease: ${j(stop.ease)}, immediateRender: false`);
 			push(`  }, ${n(win.at)})`);
 			push(`  .fromTo(norm${k}, ${j(shape.norm)},`);

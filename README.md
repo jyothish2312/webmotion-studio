@@ -52,8 +52,39 @@ At each stop you set:
 |---|---|
 | **Hold** | How long to sit still. This is what makes a pickup or a landing read as deliberate rather than as a glitch. |
 | **Travel** | Seconds to reach the next stop, plus its easing. |
-| **Morph** | Which shape to become, and whether that happens during the hold, during the travel, or over a custom length. |
+| **Morph** | Which shape to become, when it happens, and **how** — see below. |
 | **Look** | Scale, rotation, opacity, stroke colour, stroke width, fill — tweened from this stop to the next. |
+
+## How a morph is paired up
+
+MorphSVG decides which subpath of A becomes which subpath of B (`map`) and
+whether anchors travel straight or swing on arcs (`type`). Those two choices
+dominate how a morph reads, and the right answer depends entirely on how alike
+the shapes are — so it is set **per marker**, under Shape → *How it morphs*.
+
+Measured on `examples/shapes`, as worst bounding box during the morph over the
+box the two shapes share (1.00 = never strayed outside):
+
+| | claw-open → carry | cruise → carry | cruise → crate |
+|---|---|---|---|
+| `size` + rotational | 1.215 | 1.113 | 0.922 |
+| `size` + linear | 1.000 | 1.000 | 0.941 |
+| `position` + linear | **1.000** | **1.000** | 0.941 |
+| `position` + rotational | 1.192 | 1.011 | **0.923** |
+
+Rotational flings pieces around when the shapes are near-identical, and earns
+its keep only when they genuinely differ. So:
+
+- **Minimal** (`position` + linear) — the default for new markers. Use it
+  whenever the two shapes are versions of the same thing.
+- **Balanced** (`size` + linear) — pairs big with big.
+- **Organic** (`size` + rotational) — for genuinely different shapes.
+- **By detail** (`complexity` + linear) — when the other three look wrong.
+- **Custom** — the raw `map` / `type` / `shapeIndex`.
+
+A marker set to *Whatever the track says* follows the track's **Rotational
+morphing** switch, which is what projects saved before this existed do — loading
+one never restyles its morphs.
 
 ## Physicality
 
@@ -105,6 +136,7 @@ time directly.
 | `src/TrackObject.svelte` | One track's wrapper stack, mirrored exactly by the exporter. |
 | `src/lib/panels.svelte.js` | Panel sizes and section state. Workspace preference, not project data, so it persists separately. |
 | `src/lib/helpContent.js` | The in-app guide, as data so it can be searched. |
+| `src/lib/recovery.js` | The localStorage safety net, and what it deliberately drops. |
 
 ### Why nine nested `<g>` wrappers
 
@@ -161,6 +193,15 @@ finished frame, since the end state is usually the point.
 - **Svelte** — a copy-paste `<GaspScene>` snippet.
 
 **Save** / **Open** handle the editable `.json` project (v1 and v2 files migrate).
+
+### Recovery
+
+Every edit is snapshotted to `localStorage`, debounced. Close the tab without
+saving and the next visit offers it back. It is a safety net, not a save system:
+it lives only in that browser, and **background images are not kept** — they are
+data URLs that routinely run to megabytes and would blow the quota on their own,
+taking the rest of the project with them. A project too big to snapshot says so
+rather than silently dropping it.
 
 ## Tests
 

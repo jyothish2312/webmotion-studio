@@ -4,11 +4,14 @@
 		ui,
 		EASES,
 		TRIGGERS,
+		MORPH_STYLES,
+		MORPH_MAPS,
 		selectedMarker,
 		activeScene,
 		activeLayout,
 		activeTrack
 	} from './lib/state.svelte.js';
+	import { resolveMorph } from './lib/model.js';
 	import Section from './ui/Section.svelte';
 	import Slider from './ui/Slider.svelte';
 	import Toggle from './ui/Toggle.svelte';
@@ -32,6 +35,11 @@
 		else layout.match[key] = n;
 		layout.match = { ...layout.match };
 	}
+
+	const resolved = $derived(marker && settings ? resolveMorph(marker, settings) : null);
+	const styleHint = $derived(
+		MORPH_STYLES.find((m) => m.value === marker?.morphStyle)?.hint || ''
+	);
 
 	const MORPH_WHEN = [
 		{ value: 'hold', label: 'During the hold — the pickup' },
@@ -145,6 +153,56 @@
 						No hold set — the morph will use a 0.5s default. Add a hold above to control it.
 					</p>
 				{/if}
+
+				<!--
+					How the two shapes get paired up dominates how a morph reads, and the
+					right answer depends on how alike they are — so it belongs here, per
+					marker, not as one switch for the whole track.
+				-->
+				<label class="mt-4 block">
+					<span class="field-label">How it morphs</span>
+					<select bind:value={marker.morphStyle} class="field">
+						{#each MORPH_STYLES as style (style.value)}
+							<option value={style.value}>{style.label}</option>
+						{/each}
+					</select>
+				</label>
+				{#if styleHint}<p class="hint mt-1">{styleHint}</p>{/if}
+
+				{#if marker.morphStyle === 'custom'}
+					<div class="mt-3 rounded-md border border-line bg-panel-dark/60 p-2.5">
+						<label class="mb-2 block">
+							<span class="field-label">Pair each piece with</span>
+							<select bind:value={marker.morphMap} class="field">
+								{#each MORPH_MAPS as m (m.value)}
+									<option value={m.value}>{m.label}</option>
+								{/each}
+							</select>
+						</label>
+						<Toggle
+							label="Swing anchors on arcs"
+							bind:checked={marker.morphRotational}
+							hint="MorphSVG's rotational mode."
+						/>
+						<label class="block">
+							<span class="field-label">Start-point offset</span>
+							<input
+								type="text"
+								bind:value={marker.morphShapeIndex}
+								class="field font-mono text-[11px]"
+								placeholder="auto"
+							/>
+							<p class="hint mt-1">
+								<code>auto</code>, <code>reverse</code>, or a whole number. Rotates where each
+								piece starts tracing, which is worth nudging when a morph twists.
+							</p>
+						</label>
+					</div>
+				{/if}
+
+				<p class="hint mt-2 font-mono text-[10px]">
+					map: {resolved.map} · type: {resolved.type} · shapeIndex: {resolved.shapeIndex}
+				</p>
 			{/if}
 		</Section>
 

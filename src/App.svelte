@@ -22,10 +22,14 @@
 	} from './lib/state.svelte.js';
 	import { makeScene } from './lib/model.js';
 	import { persistWorkspace, resetSize, workspace } from './lib/panels.svelte.js';
+	import { clearRecovery, describeAge, readRecovery, saveRecovery } from './lib/recovery.js';
 
 	let showExport = $state(false);
 	let showHelp = $state(false);
 	let importError = $state(null);
+	let recovery = $state(null);
+	let recoveryNote = $state(null);
+	let armed = false;
 
 	const scene = $derived(activeScene());
 	const anyModal = $derived(showExport || showHelp);
@@ -33,6 +37,12 @@
 	onMount(() => {
 		hydrateAssets();
 		resetSelection();
+
+		// Offer back whatever the last session was holding. This is read before
+		// anything is armed, so opening the app never overwrites the snapshot it
+		// is about to offer you.
+		recovery = readRecovery();
+
 		// First run: open the guide rather than leaving someone staring at a
 		// canvas full of dots with no idea what a "stop" is.
 		try {
@@ -43,7 +53,57 @@
 		} catch {
 			/* storage blocked — skip the greeting, not the app */
 		}
+
+		// Arm on the next tick so the initial render does not count as an edit.
+		const arm = setTimeout(() => (armed = true), 1200);
+		return () => clearTimeout(arm);
 	});
+
+	/**
+	 * Snapshot the project as it changes.
+	 *
+	 * Reading the serialised form is what subscribes this to every field, and the
+	 * write is debounced inside saveRecovery's caller below rather than firing on
+	 * every slider tick.
+	 */
+	function trackDeep(value, depth = 0) {
+		if (depth > 8 || !value || typeof value !== 'object') return;
+		for (const key in value) trackDeep(value[key], depth + 1);
+	}
+
+	let saveTimer = null;
+	$effect(() => {
+		// Reading is what subscribes; serialising here instead would deep-clone the
+		// whole project on every frame of a slider drag.
+		trackDeep(project);
+		if (!armed) return;
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			const result = saveRecovery(serialize());
+			if (!result.ok && result.reason === 'too large') {
+				recoveryNote = 'This project is too big to keep a recovery copy of — save it to a file.';
+			}
+		}, 800);
+	});
+
+	function restoreRecovery() {
+		try {
+			load(recovery.project);
+			recoveryNote =
+				recovery.droppedBackgrounds > 0
+					? `Restored. ${recovery.droppedBackgrounds} background image${recovery.droppedBackgrounds === 1 ? ' was' : 's were'} not kept — re-add ${recovery.droppedBackgrounds === 1 ? 'it' : 'them'}.`
+					: 'Restored.';
+			setTimeout(() => (recoveryNote = null), 8000);
+		} catch (err) {
+			recoveryNote = `Could not restore: ${err.message}`;
+		}
+		recovery = null;
+	}
+
+	function dismissRecovery() {
+		clearRecovery();
+		recovery = null;
+	}
 
 	function newScene() {
 		addScene(makeScene({ name: `Scene ${project.scenes.length + 1}` }));
@@ -116,8 +176,13 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="grid h-screen w-full grid-rows-[52px_1fr_auto] overflow-hidden bg-panel-dark text-[#e6edf3]">
-	<header class="flex items-center gap-3 border-b border-line bg-panel px-3">
+<!-- The tab is how you tell two of these apart when both are open. -->
+<svelte:head>
+	<title>{project.name?.trim() || 'Untitled'} — webmotion studio</title>
+</svelte:head>
+
+<div class="flex h-screen w-full flex-col overflow-hidden bg-panel-dark text-[#e6edf3]">
+	<header class="flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
 		<div
 			class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent to-grape text-white"
 			title="webmotion studio"
@@ -240,7 +305,41 @@
 		</div>
 	</header>
 
-	<main class="flex min-h-0 min-w-0">
+	{#if recovery || recoveryNote}
+		<div
+			class="flex shrink-0 items-center gap-3 border-b border-line bg-accent/10 px-4 py-1.5 text-xs"
+			role="status"
+		>
+			{#if recovery}
+				<span class="text-white">
+					Unsaved work from {describeAge(recovery.savedAt)} — “{recovery.project.name}”
+				</span>
+				<button
+					class="rounded border border-accent bg-accent px-2 py-1 font-semibold text-ink transition-all hover:brightness-110"
+					onclick={restoreRecovery}>Restore it</button
+				>
+				<button
+					class="rounded border border-line bg-raise px-2 py-1 text-muted transition-colors hover:text-white"
+					onclick={dismissRecovery}>Discard</button
+				>
+				<span class="text-[10px] text-muted">
+					Kept in this browser only, without background images.
+				</span>
+			{:else}
+				<span class="text-muted">{recoveryNote}</span>
+			{/if}
+			<button
+				class="ml-auto px-2 text-muted transition-colors hover:text-white"
+				onclick={() => {
+					recovery = null;
+					recoveryNote = null;
+				}}
+				aria-label="Dismiss">&times;</button
+			>
+		</div>
+	{/if}
+
+	<main class="flex min-h-0 min-w-0 flex-1">
 		{#if showChrome && workspace.leftOpen}
 			<AssetPanel width={leftWidth} />
 			<Splitter target="left" side="left" label="Resize the left panel" />
@@ -262,7 +361,7 @@
 		{/if}
 	</main>
 
-	<div class="flex flex-col">
+	<div class="flex shrink-0 flex-col">
 		<Splitter target="timeline" side="up" label="Resize the timeline" />
 		<div style="height: {workspace.timeline}px" class="min-h-0">
 			<Timeline />

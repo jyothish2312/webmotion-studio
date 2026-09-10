@@ -29,7 +29,7 @@ export const HELP = [
 			},
 			{
 				type: 'note',
-				text: 'Nothing autosaves. **Save** writes a `.json` you can re-open later; **Get GSAP code** produces what you actually ship.'
+				text: '**Save** writes a `.json` you can re-open later; **Get GSAP code** produces what you actually ship. There is also a recovery copy kept in this browser — if you close the tab without saving, the next visit offers it back. It is a safety net, not a save: it lives only here, and it does not keep background images.'
 			}
 		]
 	},
@@ -170,6 +170,29 @@ export const HELP = [
 				]
 			},
 			{
+				type: 'body',
+				text: 'If a morph throws pieces across the icon, the fix is almost always **How it morphs** on that marker. It decides which piece of the first shape becomes which piece of the second, and whether they move in straight lines or swing on arcs.'
+			},
+			{
+				type: 'list',
+				items: [
+					[
+						'Minimal',
+						'Each piece pairs with the nearest one and moves straight there. Start here whenever the two shapes are versions of the same thing — a drone with its claw open and the same drone carrying a crate.'
+					],
+					[
+						'Balanced',
+						'Pairs by size instead of position. Worth trying when the shapes share a structure but sit in different places.'
+					],
+					[
+						'Organic',
+						'Anchors swing on arcs. It reads better between genuinely different shapes, and badly between similar ones — this is the setting that makes near-identical icons fly apart.'
+					],
+					['By detail', 'Pairs pieces with similar numbers of anchor points. The one to try when the other three all look wrong.'],
+					['Custom', 'The raw pairing, arc and start-point-offset controls, if you want to hand-tune one.']
+				]
+			},
+			{
 				type: 'note',
 				tone: 'warn',
 				text: 'Element transforms in an uploaded SVG are **not** baked in. Flatten them in your editor first, or the shape will land in the wrong place.'
@@ -277,8 +300,8 @@ export const HELP = [
 						'Use Adjust on the shape, not Rotation offset. Adjust corrects the drawing; the offset is a per-track trim on top of it.'
 					],
 					[
-						'A morph turns inside out',
-						'Turn off Rotational morphing under Object, or reorder the subpaths so they correspond between the two shapes.'
+						'A morph turns inside out or flings pieces about',
+						'Set that marker’s How it morphs to Minimal. Organic (and the old Rotational morphing switch) swings anchors on arcs, which looks wrong between shapes that are nearly the same.'
 					],
 					[
 						'It will not rotate along the path',

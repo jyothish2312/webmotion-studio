@@ -357,6 +357,91 @@ await wait(400);
 const restored = await evaluate(`document.querySelectorAll('circle[data-type="anchor"]').length`);
 check('exiting preview restores the chrome', restored > 0, `${restored} anchors`);
 
+// --- morph style ------------------------------------------------------------
+// The pairing and interpolation options decide whether a morph between two
+// near-identical icons stays put or flings pieces across the artwork.
+// Earlier blocks churn scenes, layouts and markers, so make our own rather
+// than depending on whatever survived.
+await deselect();
+const morphCanvas = await evaluate(
+  `(() => { const s = document.querySelector('svg[role=application]'); const r = s.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`
+);
+await evaluate(`document.querySelector('[data-tool="marker"]').click()`);
+await wait(300);
+{
+  const x = morphCanvas[0] + morphCanvas[2] * 0.5;
+  const y = morphCanvas[1] + morphCanvas[3] * 0.55;
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, buttons: 0 });
+}
+await wait(900);
+
+// A marker only shows morph options once it actually morphs into something.
+const armedMorph = await evaluate(`(() => {
+  const sel = [...document.querySelectorAll('aside select')].find(s => [...s.options].some(o => o.value === 'none' && /no change/i.test(o.textContent)));
+  if (!sel) return 'no morph select';
+  const target = [...sel.options].find(o => o.value !== 'none');
+  if (!target) return 'no asset to morph into';
+  sel.value = target.value;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  return target.textContent.trim();
+})()`);
+await wait(600);
+
+const styleSelectJs = `[...document.querySelectorAll('aside select')].find(s => [...s.options].some(o => o.value === 'minimal'))`;
+const morphUi = await evaluate(`(() => {
+  const sel = ${styleSelectJs};
+  if (!sel) return null;
+  const resolved = [...document.querySelectorAll('aside p')].map(p => p.textContent.trim()).find(t => t.indexOf('map:') === 0);
+  return { options: [...sel.options].map(o => o.value), value: sel.value, resolved };
+})()`);
+check('a marker exposes its own morph style', !!morphUi && morphUi.options.includes('minimal'), `${armedMorph} | ${JSON.stringify(morphUi?.options)}`);
+check('new markers default to the least-movement style', morphUi?.value === 'minimal', String(morphUi?.value));
+check(
+  'the resolved MorphSVG options are shown',
+  /map: position/.test(morphUi?.resolved ?? '') && /type: linear/.test(morphUi?.resolved ?? ''),
+  morphUi?.resolved
+);
+
+async function pickMorphStyle(value) {
+  await evaluate(`(() => {
+    const sel = ${styleSelectJs};
+    sel.value = ${JSON.stringify(value)};
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await wait(500);
+  return evaluate(
+    `[...document.querySelectorAll('aside p')].map(p => p.textContent.trim()).find(t => t.indexOf('map:') === 0)`
+  );
+}
+const organic = await pickMorphStyle('organic');
+check('organic is the one that swings on arcs', /type: rotational/.test(organic ?? ''), organic);
+
+const custom = await pickMorphStyle('custom');
+const customUi = await evaluate(`(() => ({
+  hasMapSelect: [...document.querySelectorAll('aside select')].some(s => [...s.options].some(o => o.value === 'complexity')),
+  hasShapeIndex: !!document.querySelector('aside input[placeholder="auto"]')
+}))()`);
+check('custom exposes the raw pairing controls', customUi?.hasMapSelect === true && customUi?.hasShapeIndex === true, `${custom} | ${JSON.stringify(customUi)}`);
+
+await pickMorphStyle('minimal');
+
+// And the morph still actually runs after all that fiddling.
+const shapesSeen = new Set();
+for (const f of [0.15, 0.4, 0.6, 0.85]) {
+  const s = await scrubTo(f);
+  shapesSeen.add(s?.shapeD);
+}
+check('the morph still runs with a per-marker style', shapesSeen.size > 1, `${shapesSeen.size} distinct shapes`);
+
+// Remove the marker we made, so later counts start from the original scene.
+await evaluate(`(() => {
+  const b = [...document.querySelectorAll('aside button')].find(x => x.textContent.trim() === 'Delete');
+  if (b) b.click();
+})()`);
+await wait(600);
+await deselect();
+
 // --- multi-track scene ----------------------------------------------------
 // Tracks in one scene share a master timeline; track.offset is where each sits
 // on it. That offset is the only coupling between tracks.
@@ -628,6 +713,65 @@ const injection = await evaluate(
 	`({ pwned: !!document.getElementById('pwned-marker'), imported: [...document.querySelectorAll('[data-asset-name]')].map(e => e.textContent.trim()) })`
 );
 check('untrusted asset.d cannot inject DOM nodes', injection?.pwned === false, `imported assets: ${JSON.stringify(injection?.imported)}`);
+
+// --- recovery ---------------------------------------------------------------
+// Closing the tab used to take everything with it.
+await evaluate(`(() => {
+  const el = document.querySelector('input[aria-label="Project name"]');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  setter.call(el, 'Recovered Project');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await wait(1600);
+const stored = await evaluate(`(() => {
+  const raw = localStorage.getItem('webmotion.recovery.v1');
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  return {
+    name: parsed.project.name,
+    hasScenes: Array.isArray(parsed.project.scenes) && parsed.project.scenes.length > 0,
+    savedAt: typeof parsed.savedAt === 'number',
+    backgrounds: parsed.project.scenes.flatMap(s => s.layouts).filter(l => l.background).length
+  };
+})()`);
+check('edits are snapshotted to local storage', stored?.name === 'Recovered Project' && stored?.hasScenes, JSON.stringify(stored));
+check('the snapshot keeps no background images', stored?.backgrounds === 0, `${stored?.backgrounds} kept`);
+
+await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+await wait(2500);
+const offer = await evaluate(`(() => {
+  const banner = [...document.querySelectorAll('[role=status]')].find(b => /Unsaved work/.test(b.textContent));
+  return banner ? banner.textContent.replace(/\\s+/g, ' ').trim() : null;
+})()`);
+check('the next visit offers the unsaved work back', /Recovered Project/.test(offer ?? ''), offer);
+
+await evaluate(`(() => {
+  const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Restore it');
+  if (b) b.click();
+})()`);
+await wait(900);
+const restoredName = await evaluate(`document.querySelector('input[aria-label="Project name"]').value`);
+check('restoring brings the project back', restoredName === 'Recovered Project', String(restoredName));
+
+// Discarding must actually clear it, not just hide the banner.
+await evaluate(`(() => { try { localStorage.setItem('webmotion.recovery.v1', JSON.stringify({ savedAt: Date.now(), project: { version: 3, name: 'Throwaway', assets: [], scenes: [{ layouts: [{ tracks: [] }] }] } })); } catch {} })()`);
+await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+await wait(2500);
+await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Discard'); if (b) b.click(); })()`);
+await wait(500);
+const cleared = await evaluate(`localStorage.getItem('webmotion.recovery.v1') === null`);
+check('discarding clears the snapshot', cleared === true);
+
+// --- identity ---------------------------------------------------------------
+const pageIdentity = await evaluate(`(() => ({
+  title: document.title,
+  icon: document.querySelector('link[rel="icon"]')?.getAttribute('href') ?? null
+}))()`);
+check('the tab is named after the project', /webmotion studio/.test(pageIdentity?.title ?? '') , pageIdentity?.title);
+check('a favicon is linked', pageIdentity?.icon === '/favicon.svg', pageIdentity?.icon);
+const iconOk = await evaluate(`fetch('/favicon.svg').then(r => r.ok && r.headers.get('content-type'))`);
+check('the favicon actually resolves', String(iconOk).includes('svg'), String(iconOk));
+
 
 // --- workspace chrome ------------------------------------------------------
 check('the guide is offered on a first visit', typeof guideShown === 'boolean', `shown: ${guideShown}`);

@@ -1,7 +1,7 @@
 import { hydrateAsset } from './svg.js';
 import { defaultProject, migrate, SCHEMA_VERSION } from './model.js';
 
-export { EASES, TRIGGERS, DEVICES, pickLayout } from './model.js';
+export { EASES, TRIGGERS, DEVICES, MORPH_STYLES, MORPH_MAPS, pickLayout } from './model.js';
 
 export const project = $state(defaultProject());
 

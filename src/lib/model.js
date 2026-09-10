@@ -77,6 +77,101 @@ export function makeState(over = {}) {
 	};
 }
 
+// --- morphing -------------------------------------------------------------
+
+/**
+ * How two shapes are paired up and interpolated.
+ *
+ * MorphSVG decides which subpath of A becomes which subpath of B (`map`) and
+ * whether anchors travel straight or swing on arcs (`type`). Those two choices
+ * dominate how a morph reads, and the right answer depends entirely on how alike
+ * the shapes are — which is why this is per marker rather than one global switch.
+ *
+ * Measured on the example drones, worst bounding box during the morph over the
+ * box the two shapes share (1.00 = never strayed outside):
+ *
+ *   claw-open -> carry    size+rotational 1.215   size+linear 1.000   position+linear 1.000
+ *   cruise    -> carry    size+rotational 1.113   size+linear 1.000   position+linear 1.000
+ *   cruise    -> crate    size+rotational 0.922   size+linear 0.941   position+rotational 0.923
+ *
+ * So rotational flings pieces around when the shapes are near-identical, and
+ * earns its keep only when they genuinely differ.
+ */
+export const MORPH_STYLES = [
+	{
+		value: 'minimal',
+		label: 'Minimal — least movement',
+		hint: 'Pairs each piece with the nearest one and moves it in a straight line. Use this when the two shapes are versions of the same thing.'
+	},
+	{
+		value: 'balanced',
+		label: 'Balanced — pair big with big',
+		hint: 'Matches pieces by size instead of position. Good when the shapes share a structure but sit differently.'
+	},
+	{
+		value: 'organic',
+		label: 'Organic — swing into place',
+		hint: 'Anchors travel on arcs rather than straight lines. Better for genuinely different shapes; on similar ones it throws pieces across the icon.'
+	},
+	{
+		value: 'detail',
+		label: 'By detail',
+		hint: 'Pairs pieces with similar numbers of anchor points. Worth trying when the other three all look wrong.'
+	},
+	{ value: 'auto', label: 'Whatever the track says', hint: 'Follows Rotational morphing under Object.' },
+	{ value: 'custom', label: 'Custom…', hint: '' }
+];
+
+export const MORPH_MAPS = [
+	{ value: 'position', label: 'Nearest piece' },
+	{ value: 'size', label: 'Similar size' },
+	{ value: 'complexity', label: 'Similar detail' }
+];
+
+const PRESETS = {
+	minimal: { map: 'position', type: 'linear' },
+	balanced: { map: 'size', type: 'linear' },
+	organic: { map: 'size', type: 'rotational' },
+	detail: { map: 'complexity', type: 'linear' }
+};
+
+/**
+ * A shapeIndex is 'auto', 'reverse', or a whole number offset.
+ *
+ * null and '' both have to land on 'auto': Number(null) is 0, and 0 is a valid
+ * shapeIndex meaning "no offset", so a cleared field would silently become a
+ * real setting rather than the default.
+ */
+export function normalizeShapeIndex(value) {
+	if (value === 'reverse') return 'reverse';
+	if (value == null) return 'auto';
+	const text = String(value).trim();
+	if (text === '') return 'auto';
+	const n = Number(text);
+	return Number.isFinite(n) ? Math.round(n) : 'auto';
+}
+
+/** The MorphSVG vars for one marker. Pure, so the exporter can reuse it. */
+export function resolveMorph(marker, trackSettings) {
+	const style = marker?.morphStyle ?? 'auto';
+
+	if (style === 'custom') {
+		return {
+			map: MORPH_MAPS.some((m) => m.value === marker.morphMap) ? marker.morphMap : 'position',
+			type: marker.morphRotational ? 'rotational' : 'linear',
+			shapeIndex: normalizeShapeIndex(marker.morphShapeIndex)
+		};
+	}
+	if (PRESETS[style]) return { ...PRESETS[style], shapeIndex: 'auto' };
+
+	// 'auto' — follow the track, which is what pre-existing projects relied on.
+	return {
+		map: 'size',
+		type: trackSettings?.rotationalMorph ? 'rotational' : 'linear',
+		shapeIndex: 'auto'
+	};
+}
+
 // --- markers --------------------------------------------------------------
 
 export function makeMarker(progress, over = {}) {
@@ -89,6 +184,14 @@ export function makeMarker(progress, over = {}) {
 		morphTarget: over.morphTarget ? String(over.morphTarget) : 'none',
 		morphType: ['hold', 'segment', 'custom'].includes(over.morphType) ? over.morphType : 'hold',
 		morphDuration: Math.max(0.1, num(over.morphDuration, 0.6)),
+		// New markers get the least-movement pairing; loading sets 'auto'
+		// explicitly so an existing project keeps exactly the look it had.
+		morphStyle: MORPH_STYLES.some((m) => m.value === over.morphStyle)
+			? over.morphStyle
+			: 'minimal',
+		morphMap: MORPH_MAPS.some((m) => m.value === over.morphMap) ? over.morphMap : 'position',
+		morphRotational: Boolean(over.morphRotational),
+		morphShapeIndex: over.morphShapeIndex == null ? 'auto' : normalizeShapeIndex(over.morphShapeIndex),
 		classes: typeof over.classes === 'string' ? over.classes : '',
 		state: makeState(over.state)
 	};
@@ -213,7 +316,9 @@ export function makeTrack(over = {}) {
 		points: Array.isArray(over.points) && over.points.length >= 2
 			? over.points.map(makePoint)
 			: defaultPoints(),
-		markers: Array.isArray(over.markers) ? over.markers.map((m) => makeMarker(m.progress, m)) : [],
+		markers: Array.isArray(over.markers)
+			? over.markers.map((m) => makeMarker(m.progress, { morphStyle: 'auto', ...m }))
+			: [],
 		settings: makeTrackSettings(over.settings)
 	};
 }
@@ -396,6 +501,9 @@ export function migrate(data) {
 	const s = flat.settings;
 	const markers = (Array.isArray(flat.markers) ? flat.markers : []).map((m) =>
 		makeMarker(m.progress, {
+			// A file written before per-marker morph styles existed followed the
+			// track's Rotational morphing switch; keep it that way on load.
+			morphStyle: 'auto',
 			...m,
 			// v1 split classes into instant + transition; only the instant half ever
 			// worked, and the transition half is now the tweened `state`.
