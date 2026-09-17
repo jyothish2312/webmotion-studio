@@ -107,10 +107,14 @@ export const HELP = [
 			{
 				type: 'list',
 				items: [
-					['Anchors', 'The yellow dots. Drag to move a point.'],
+					['Anchors', 'The yellow dots. Drag to move a point; selected ones turn white.'],
+					[
+						'Selecting several',
+						'Drag on empty canvas to box-select, or shift-click individual anchors. Dragging any anchor in the group moves the whole group together, and the arrow keys nudge them.'
+					],
 					[
 						'Handles',
-						'The purple dots. Drag to bend the curve. They mirror each other — hold Alt while dragging to break that.'
+						'The purple dots. Drag to bend the curve. They mirror each other ΓÇö hold Alt while dragging to break that. They hide while several points are selected, so the canvas stays readable.'
 					],
 					[
 						'Markers',
@@ -318,7 +322,11 @@ export const HELP = [
 					[
 						'The panels are a mess',
 						'Drag any divider to resize, double-click one to reset it, or use View → Reset workspace in the header.'
-					]
+					],
+					[
+						'Arrow keys do nothing',
+						'Nothing is selected. Click an anchor or press A to take the whole path, then nudge.'
+					],
 				]
 			}
 		]
@@ -329,14 +337,18 @@ export const SHORTCUTS = [
 	['V', 'Select and edit'],
 	['P', 'Add path point'],
 	['M', 'Add marker'],
+	['A', 'Select every point on the path'],
 	['Space', 'Play / pause'],
-	['Del', 'Delete the selected marker or point'],
+	['Arrows', 'Nudge the selected points'],
+	['Shift + arrows', 'Nudge further'],
+	['Del', 'Delete the selected marker or points'],
+	['Esc', 'Deselect / close a dialog'],
 	['0', 'Reset the view'],
 	['Alt + drag', 'Pan the canvas'],
 	['Wheel', 'Zoom to the cursor'],
+	['Shift + click point', 'Add or remove one point from the selection'],
 	['Alt + drag handle', 'Break the handle mirror'],
-	['?', 'Open this guide'],
-	['Esc', 'Close a dialog']
+	['?', 'Open this guide']
 ];
 
 /** Turns `**bold**` and `` `code` `` into segments the template can render. */

@@ -96,6 +96,7 @@
 	let panFrom = { x: 0, y: 0, viewX: 0, viewY: 0 };
 	let marquee = $state(null); // { x0, y0, x1, y1, startClientX, startClientY, additive }
 	let groupDrag = null; // plain, not reactive — like panFrom
+	let pendingCollapse = null;
 
 	onMount(() => {
 		hydrateAssets();
@@ -262,12 +263,13 @@
 			if (type === 'anchor') {
 				const id = track.points[index]?.id;
 				if (event.shiftKey) {
-					// Toggle just this one without disturbing the rest of the selection.
 					if (ui.selectedPointIds.has(id)) ui.selectedPointIds.delete(id);
 					else ui.selectedPointIds.add(id);
 				} else if (!ui.selectedPointIds.has(id)) {
 					ui.selectedPointIds.clear();
 					ui.selectedPointIds.add(id);
+				} else {
+					pendingCollapse = { id, clientX: event.clientX, clientY: event.clientY };
 				}
 				ui.selectedMarkerId = null;
 				beginGroupDrag(event);
@@ -353,6 +355,18 @@
 			svgEl.releasePointerCapture(event.pointerId);
 		}
 		if (marquee) finishMarquee(event);
+		if (pendingCollapse) {
+			const moved =
+				Math.hypot(
+					event.clientX - pendingCollapse.clientX,
+					event.clientY - pendingCollapse.clientY
+				) > 4;
+			if (!moved) {
+				ui.selectedPointIds.clear();
+				ui.selectedPointIds.add(pendingCollapse.id);
+			}
+			pendingCollapse = null;
+		}
 		panning = false;
 		drag = null;
 		groupDrag = null;
@@ -452,6 +466,17 @@
 					pt.y += dy * step;
 				}
 			}
+			event.preventDefault();
+		} else if (event.key === 'Escape') {
+			if (marquee) marquee = null;
+			ui.selectedPointIds.clear();
+			ui.selectedMarkerId = null;
+			event.preventDefault();
+		} else if (event.key === 'a' || event.key === 'A') {
+			if (!track) return;
+			ui.selectedPointIds.clear();
+			for (const pt of track.points) ui.selectedPointIds.add(pt.id);
+			ui.selectedMarkerId = null;
 			event.preventDefault();
 		} else if (event.key === ' ') {
 			ui.isPlaying = !ui.isPlaying;
@@ -595,8 +620,9 @@
 
 		<!-- Handles -->
 		{#each track?.points ?? [] as point, i (point.id)}
-			{@const showIn = i > 0 || track.settings.closedPath}
-			{@const showOut = i < track.points.length - 1 || track.settings.closedPath}
+			{@const solo = ui.selectedPointIds.size <= 1}
+			{@const showIn = solo && (i > 0 || track.settings.closedPath)}
+			{@const showOut = solo && (i < track.points.length - 1 || track.settings.closedPath)}
 			{#if showIn}
 				<line
 					x1={point.x}
@@ -703,11 +729,17 @@
 	</svg>
 
 	{#if !ui.preview}
-		<!-- One quiet line now that the guide covers the rest. -->
 		<div
 			class="pointer-events-none absolute bottom-2 left-2 rounded bg-panel/80 px-2 py-1 text-[10px] text-muted/80"
 		>
-			Alt+drag pan · wheel zoom · 0 reset · <kbd class="text-muted">?</kbd> for help
+			{#if ui.selectedPointIds.size > 1}
+				<span class="text-accent"
+					>{ui.selectedPointIds.size} points selected</span
+				> • arrows nudge • shift+arrows further • Esc deselects
+			{:else}
+				Alt+drag pan • wheel zoom • 0 reset • drag to box-select •
+				<kbd class="text-muted">?</kbd> for help
+			{/if}
 		</div>
 	{/if}
 
