@@ -348,7 +348,9 @@ export const SHORTCUTS = [
 	['Wheel', 'Zoom to the cursor'],
 	['Shift + click point', 'Add or remove one point from the selection'],
 	['Alt + drag handle', 'Break the handle mirror'],
-	['?', 'Open this guide']
+	['?', 'Open this guide'],
+	['Ctrl + Z', 'Undo'],
+	['Ctrl + Shift + Z', 'Redo']
 ];
 
 /** Turns `**bold**` and `` `code` `` into segments the template can render. */

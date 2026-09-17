@@ -12,6 +12,7 @@
 		activeTrack
 	} from './lib/state.svelte.js';
 	import { resolveMorph } from './lib/model.js';
+	import { commit } from './lib/history.svelte.js';
 	import Section from './ui/Section.svelte';
 	import Slider from './ui/Slider.svelte';
 	import Toggle from './ui/Toggle.svelte';
@@ -87,6 +88,7 @@
 				suffix="s"
 				decimals={1}
 				hint="A pause. This is what makes a pickup or a landing read as deliberate."
+				onchange={() => commit('marker-hold')}
 			/>
 			<Slider
 				label="Travel to next stop"

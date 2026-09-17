@@ -207,3 +207,53 @@ export function resetSelection() {
 	ui.progress = 0;
 	ui.isPlaying = false;
 }
+
+/** Selection state, so history can restore a snapshot without losing your place. */
+export function captureSelection() {
+	return {
+		activeSceneId: ui.activeSceneId,
+		activeLayoutId: ui.activeLayoutId,
+		selectedTrackId: ui.selectedTrackId,
+		selectedMarkerId: ui.selectedMarkerId,
+		selectedPointIds: [...ui.selectedPointIds]
+	};
+}
+
+/**
+ * Restores a selection, dropping anything the new project no longer contains —
+ * undoing an "add point" must not leave that point selected.
+ */
+export function restoreSelection(saved) {
+	if (!saved) return;
+	if (project.scenes.some((s) => s.id === saved.activeSceneId)) {
+		ui.activeSceneId = saved.activeSceneId;
+	}
+	const scene = activeScene();
+	if (scene?.layouts.some((l) => l.id === saved.activeLayoutId)) {
+		ui.activeLayoutId = saved.activeLayoutId;
+	}
+	const layout = activeLayout();
+	if (layout?.tracks.some((t) => t.id === saved.selectedTrackId)) {
+		ui.selectedTrackId = saved.selectedTrackId;
+	}
+	const track = activeTrack();
+	ui.selectedMarkerId =
+		track?.markers.some((m) => m.id === saved.selectedMarkerId) ? saved.selectedMarkerId : null;
+	ui.selectedPointIds.clear();
+	for (const id of saved.selectedPointIds) {
+		if (track?.points.some((p) => p.id === id)) ui.selectedPointIds.add(id);
+	}
+}
+
+function apply(snapshot) {
+	const saved = captureSelection();
+	applying = true;
+	try {
+		load(snapshot);
+	} finally {
+		applying = false;
+	}
+	restoreSelection(saved);
+	baseline = serialize();
+	coalesceKey = null;
+}

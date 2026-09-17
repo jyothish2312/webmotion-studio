@@ -14,6 +14,7 @@
 	} from './lib/state.svelte.js';
 	import TrackObject from './TrackObject.svelte';
 	import { makePoint } from './lib/model.js';
+	import {commit} from './lib/history.svelte.js';
 	import { insertMarker } from './lib/insertMarker.js';
 	import { buildPathD, pointAt, projectToPath, clamp01 } from './lib/path.js';
 	import { createSceneRenderer } from './lib/engine.js';
@@ -367,6 +368,7 @@
 			}
 			pendingCollapse = null;
 		}
+		if (drag) commit(`drag-${drag.kind}-${drag.index}`);
 		panning = false;
 		drag = null;
 		groupDrag = null;
@@ -420,6 +422,7 @@
 		const uy = (dy / len) * reach;
 
 		track.points = [...track.points, makePoint({ x, y, inX: -ux, inY: -uy, outX: ux, outY: uy })];
+		commit();
 	}
 
 	function addMarker(x, y) {
@@ -432,6 +435,7 @@
 		});
 		ui.selectedMarkerId = marker.id;
 		ui.mode = 'edit';
+		commit();
 	}
 
 	const ARROW_KEYS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -449,10 +453,12 @@
 			if (ui.selectedMarkerId) {
 				track.markers = track.markers.filter((m) => m.id !== ui.selectedMarkerId);
 				ui.selectedMarkerId = null;
+				commit();
 				event.preventDefault();
 			} else if (ui.selectedPointIds.size && track.points.length - ui.selectedPointIds.size >= 2) {
 				track.points = track.points.filter((pt) => !ui.selectedPointIds.has(pt.id));
 				ui.selectedPointIds.clear();
+				commit();
 				event.preventDefault();
 			}
 		} else if (ARROW_KEYS[event.key] && track && ui.selectedPointIds.size) {
@@ -466,6 +472,7 @@
 					pt.y += dy * step;
 				}
 			}
+			commit('nudge');
 			event.preventDefault();
 		} else if (event.key === 'Escape') {
 			if (marquee) marquee = null;

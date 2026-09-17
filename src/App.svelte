@@ -21,6 +21,7 @@
 		removeScene
 	} from './lib/state.svelte.js';
 	import { makeScene } from './lib/model.js';
+	import { redo, undo , resetHistory, history} from './lib/history.svelte';
 	import { persistWorkspace, resetSize, workspace } from './lib/panels.svelte.js';
 	import { clearRecovery, describeAge, readRecovery, saveRecovery } from './lib/recovery.js';
 
@@ -94,6 +95,7 @@
 					? `Restored. ${recovery.droppedBackgrounds} background image${recovery.droppedBackgrounds === 1 ? ' was' : 's were'} not kept — re-add ${recovery.droppedBackgrounds === 1 ? 'it' : 'them'}.`
 					: 'Restored.';
 			setTimeout(() => (recoveryNote = null), 8000);
+			resetHistory()
 		} catch (err) {
 			recoveryNote = `Could not restore: ${err.message}`;
 		}
@@ -151,6 +153,7 @@
 		importError = null;
 		try {
 			load(JSON.parse(await file.text()));
+			resetHistory()
 		} catch (err) {
 			importError = err.message ?? 'Could not read that project file.';
 			setTimeout(() => (importError = null), 5000);
@@ -159,7 +162,20 @@
 
 	function onKeydown(event) {
 		if (anyModal) return;
-		if (event.ctrlKey || event.metaKey) return;
+		const mod = event.ctrlKey || event.metaKey;
+		if (mod && (event.key === 'z' || event.key === 'Z')) {
+			if (event.target instanceof HTMLInputElement) return; // let the field undo its own text
+			event.shiftKey ? redo() : undo();
+			event.preventDefault();
+			return;
+		}
+		if (mod && (event.key === 'y' || event.key === 'Y')) {
+			if (event.target instanceof HTMLInputElement) return;
+			redo();
+			event.preventDefault();
+			return;
+		}
+		if (mod) return;
 		if (event.target instanceof HTMLInputElement) return;
 		if (event.target instanceof HTMLTextAreaElement) return;
 		if (event.target instanceof HTMLSelectElement) return;
@@ -269,6 +285,20 @@
 					class="rounded border border-line bg-raise px-2 py-1.5 text-muted transition-colors hover:border-accent hover:text-white"
 					onclick={resetWorkspace}
 					title="Reset the panel sizes and reopen every section">Reset layout</button
+				>
+				<button
+					class="rounded border border-line bg-raise px-2 py-1.5 text-muted transition-colors hover:border-accent hover:text-white disabled:opacity-30"
+					disabled={!history.canUndo}
+					onclick={undo}
+					title="Undo (Ctrl+Z)"
+					aria-label="Undo">↶</button
+				>
+				<button
+					class="rounded border border-line bg-raise px-2 py-1.5 text-muted transition-colors hover:border-accent hover:text-white disabled:opacity-30"
+					disabled={!history.canRedo}
+					onclick={redo}
+					title="Redo (Ctrl+Shift+Z)"
+					aria-label="Redo">↷</button
 				>
 				<span class="mx-1 h-5 w-px bg-line"></span>
 			{/if}
