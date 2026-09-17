@@ -193,6 +193,7 @@ export function makeMarker(progress, over = {}) {
 		morphRotational: Boolean(over.morphRotational),
 		morphShapeIndex: over.morphShapeIndex == null ? 'auto' : normalizeShapeIndex(over.morphShapeIndex),
 		classes: typeof over.classes === 'string' ? over.classes : '',
+		instantLook: Boolean(over.instantLook),
 		state: makeState(over.state)
 	};
 }

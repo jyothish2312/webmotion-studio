@@ -41,6 +41,9 @@
 		}
 	});
 
+	const singleLayoutTab = $derived(tab === 'js' || tab === 'markup' || tab === 'html');
+	const multiLayout = $derived(ctx.scene && ctx.scene.layouts.length > 1);
+
 	let copyError = $state(null);
 
 	async function copy() {
@@ -111,6 +114,13 @@
 				>
 			</div>
 		</div>
+		{#if singleLayoutTab && multiLayout}
+			<p class="hint border-b border-line bg-point/10 px-4 py-1.5 text-[#e6d9a8]">
+				This scene has {ctx.scene.layouts.length} layouts ΓÇö this export only includes
+				"{ctx.layout.name}". Use "Scene data" or "Svelte" for a page that switches
+				layouts by screen size.
+			</p>
+		{/if}
 		<pre class="flex-1 overflow-auto p-4 font-mono text-[11px] leading-relaxed text-[#c9d1d9]">{code}</pre>
 	</div>
 </div>

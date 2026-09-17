@@ -207,6 +207,13 @@
 		</Section>
 
 		<Section title="Appearance">
+			<Toggle
+				label="Cut instantly"
+				bind:checked={marker.instantLook}
+				hint="This marker's look is reached with a cut, not a tween ΓÇö the fade-in
+					across the travel before it is skipped. Useful for terminating an
+					object (opacity to 0, say) without a gradual approach."
+			/>
 			<LookEditor state={marker.state} label="Look on arrival" />
 			<label class="block">
 				<span class="field-label">Extra CSS classes</span>

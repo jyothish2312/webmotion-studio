@@ -72,7 +72,8 @@ export function planStops(track) {
 			morphStyle: node.morphStyle ?? 'auto',
 			morphMap: node.morphMap,
 			morphRotational: node.morphRotational,
-			morphShapeIndex: node.morphShapeIndex
+			morphShapeIndex: node.morphShapeIndex,
+			instantLook: Boolean(node.instantLook)
 		};
 
 		stops.push(stop);
@@ -416,6 +417,7 @@ export function createTrackRenderer() {
 			const stop = plan.stops[i];
 			const next = plan.stops[i + 1];
 			const target = next ? next.state : stop.state;
+			const cutLook = next ? next.instantLook : false;
 
 			// --- Arrival: snap to this stop's look and freeze it for the hold.
 			// The base class has to be re-stated: setting `class` replaces the whole
@@ -508,18 +510,20 @@ export function createTrackRenderer() {
 				{ p: stop.to, duration: stop.travel, ease: stop.ease, immediateRender: false },
 				stop.travelAt
 			);
-			timeline.fromTo(
-				refs.fx,
-				transformOf(stop.state),
-				{ ...transformOf(target), duration: stop.travel, ease: stop.ease, immediateRender: false },
-				stop.travelAt
-			);
-			timeline.fromTo(
-				refs.morph,
-				paintOf(stop.state),
-				{ ...paintOf(target), duration: stop.travel, ease: stop.ease, immediateRender: false },
-				stop.travelAt
-			);
+			if (!cutLook) {
+				timeline.fromTo(
+					refs.fx,
+					transformOf(stop.state),
+					{ ...transformOf(target), duration: stop.travel, ease: stop.ease, immediateRender: false },
+					stop.travelAt
+				);
+				timeline.fromTo(
+					refs.morph,
+					paintOf(stop.state),
+					{ ...paintOf(target), duration: stop.travel, ease: stop.ease, immediateRender: false },
+					stop.travelAt
+				);
+			}
 		}
 
 		buildLife(track);

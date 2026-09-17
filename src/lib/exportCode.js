@@ -109,19 +109,27 @@ function buildTrackJs({ project, scene, track, index }) {
 			shape = targetAsset;
 		}
 
+		const cutLook = next ? next.instantLook : false;
 		push();
-		push(`tl${k}.fromTo(at${k}, { p: ${n(stop.from)} },`);
-		push(
-			`    { p: ${n(stop.to)}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)})`
-		);
-		push(`  .fromTo(fx${k}, ${j(pickTransform(stop.state))},`);
-		push(
-			`    { ...${j(pickTransform(target))}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)})`
-		);
-		push(`  .fromTo(shape${k}, ${j(pickPaint(stop.state))},`);
-		push(
-			`    { ...${j(pickPaint(target))}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)});`
-		);
+		if (cutLook) {
+			push(`tl${k}.fromTo(at${k}, { p: ${n(stop.from)} },`);
+			push(
+				`    { p: ${n(stop.to)}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)});`
+			);
+		} else {
+			push(`tl${k}.fromTo(at${k}, { p: ${n(stop.from)} },`);
+			push(
+				`    { p: ${n(stop.to)}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)})`
+			);
+			push(`  .fromTo(fx${k}, ${j(pickTransform(stop.state))},`);
+			push(
+				`    { ...${j(pickTransform(target))}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)})`
+			);
+			push(`  .fromTo(shape${k}, ${j(pickPaint(stop.state))},`);
+			push(
+				`    { ...${j(pickPaint(target))}, duration: ${n(stop.travel)}, ease: ${j(stop.ease)}, immediateRender: false }, ${n(stop.travelAt)});`
+			);
+		}
 		push();
 	});
 
