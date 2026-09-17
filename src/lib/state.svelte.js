@@ -1,5 +1,6 @@
 import { hydrateAsset } from './svg.js';
 import { defaultProject, migrate, SCHEMA_VERSION } from './model.js';
+import { SvelteSet } from 'svelte/reactivity';
 
 export { EASES, TRIGGERS, DEVICES, MORPH_STYLES, MORPH_MAPS, pickLayout } from './model.js';
 
@@ -11,7 +12,7 @@ export const ui = $state({
 	activeLayoutId: null,
 	selectedTrackId: null,
 	selectedMarkerId: null,
-	selectedPointIndex: null,
+	selectedPointIds: new SvelteSet(),
 	renamingTrackId: null,
 	renamingLayoutId: null,
 
@@ -173,7 +174,7 @@ export function addTrack(track) {
 	layout.tracks = [...layout.tracks, track];
 	ui.selectedTrackId = track.id;
 	ui.selectedMarkerId = null;
-	ui.selectedPointIndex = null;
+	ui.selectedPointIds.clear();
 	return track;
 }
 
@@ -202,7 +203,7 @@ export function resetSelection() {
 	ui.activeLayoutId = activeScene()?.layouts[0]?.id ?? null;
 	ui.selectedTrackId = activeLayout()?.tracks[0]?.id ?? null;
 	ui.selectedMarkerId = null;
-	ui.selectedPointIndex = null;
+	ui.selectedPointIds.clear();
 	ui.progress = 0;
 	ui.isPlaying = false;
 }

@@ -52,7 +52,7 @@
 				onclick={() => {
 					ui.selectedTrackId = track.id;
 					ui.selectedMarkerId = null;
-					ui.selectedPointIndex = null;
+					ui.selectedPointIds.clear();
 				}}
 				ondblclick={() => (ui.renamingTrackId = track.id)}
 				title="{track.name} — click to select, double-click to rename"

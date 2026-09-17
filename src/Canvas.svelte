@@ -94,6 +94,8 @@
 	let drag = $state(null);
 	let panning = $state(false);
 	let panFrom = { x: 0, y: 0, viewX: 0, viewY: 0 };
+	let marquee = $state(null); // { x0, y0, x1, y1, startClientX, startClientY, additive }
+	let groupDrag = null; // plain, not reactive — like panFrom
 
 	onMount(() => {
 		hydrateAssets();
@@ -258,8 +260,17 @@
 		}
 		if (type === 'anchor' || type === 'in' || type === 'out') {
 			if (type === 'anchor') {
-				ui.selectedPointIndex = index;
+				const id = track.points[index]?.id;
+				if (event.shiftKey) {
+					// Toggle just this one without disturbing the rest of the selection.
+					if (ui.selectedPointIds.has(id)) ui.selectedPointIds.delete(id);
+					else ui.selectedPointIds.add(id);
+				} else if (!ui.selectedPointIds.has(id)) {
+					ui.selectedPointIds.clear();
+					ui.selectedPointIds.add(id);
+				}
 				ui.selectedMarkerId = null;
+				beginGroupDrag(event);
 			}
 			drag = { kind: type, index };
 			svgEl.setPointerCapture(event.pointerId);
@@ -272,8 +283,12 @@
 		} else if (ui.mode === 'marker') {
 			addMarker(p.x, p.y);
 		} else {
-			ui.selectedMarkerId = null;
-			ui.selectedPointIndex = null;
+			marquee = {
+				x0: p.x, y0: p.y, x1: p.x, y1: p.y,
+				startClientX: event.clientX, startClientY: event.clientY,
+				additive: event.shiftKey
+			};
+			svgEl.setPointerCapture(event.pointerId);
 		}
 	}
 
@@ -281,6 +296,12 @@
 		if (panning) {
 			view.x = panFrom.viewX - (event.clientX - panFrom.x) * unit;
 			view.y = panFrom.viewY - (event.clientY - panFrom.y) * (view.h / boxH);
+			return;
+		}
+		if (marquee) {
+			const p = toSvg(event);
+			marquee.x1 = p.x;
+			marquee.y1 = p.y;
 			return;
 		}
 		if (!drag || !track) return;
@@ -296,8 +317,20 @@
 		if (!point) return;
 
 		if (drag.kind === 'anchor') {
-			point.x = p.x;
-			point.y = p.y;
+			if (groupDrag && groupDrag.starts.size > 1) {
+				const dx = p.x - groupDrag.startX;
+				const dy = p.y - groupDrag.startY;
+				for (const pt of track.points) {
+					const start = groupDrag.starts.get(pt.id);
+					if (start) {
+						pt.x = start.x + dx;
+						pt.y = start.y + dy;
+					}
+				}
+			} else {
+				point.x = p.x;
+				point.y = p.y;
+			}
 		} else if (drag.kind === 'in') {
 			point.inX = p.x - point.x;
 			point.inY = p.y - point.y;
@@ -319,8 +352,46 @@
 		if (svgEl?.hasPointerCapture?.(event.pointerId)) {
 			svgEl.releasePointerCapture(event.pointerId);
 		}
+		if (marquee) finishMarquee(event);
 		panning = false;
 		drag = null;
+		groupDrag = null;
+	}
+
+	/** Records each selected point's start position so a group drags by delta, not by snapping to the cursor. */
+	function beginGroupDrag(event) {
+		const p = toSvg(event);
+		const starts = new Map();
+		for (const pt of track.points) {
+			if (ui.selectedPointIds.has(pt.id)) starts.set(pt.id, { x: pt.x, y: pt.y });
+		}
+		groupDrag = { startX: p.x, startY: p.y, starts };
+	}
+
+	function finishMarquee(event) {
+		const { x0, y0, x1, y1, startClientX, startClientY, additive } = marquee;
+		// Measured in screen pixels, not SVG units, so the threshold holds at any zoom.
+		const moved = Math.hypot(event.clientX - startClientX, event.clientY - startClientY) > 4;
+		if (!moved) {
+			if (!additive) {
+				ui.selectedMarkerId = null;
+				ui.selectedPointIds.clear();
+			}
+			marquee = null;
+			return;
+		}
+		const minX = Math.min(x0, x1);
+		const maxX = Math.max(x0, x1);
+		const minY = Math.min(y0, y1);
+		const maxY = Math.max(y0, y1);
+		if (!additive) ui.selectedPointIds.clear();
+		for (const pt of track?.points ?? []) {
+			if (pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY) {
+				ui.selectedPointIds.add(pt.id);
+			}
+		}
+		ui.selectedMarkerId = null;
+		marquee = null;
 	}
 
 	function addPoint(x, y) {
@@ -349,13 +420,13 @@
 		ui.mode = 'edit';
 	}
 
+	const ARROW_KEYS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
 	function handleKey(event) {
 		if (event.target instanceof HTMLInputElement) return;
 		if (event.target instanceof HTMLTextAreaElement) return;
 		if (event.target instanceof HTMLSelectElement) return;
-		// Never steal a browser shortcut: Ctrl+P must print, Cmd+V must paste.
 		if (event.ctrlKey || event.metaKey) return;
-		// A modal owns the keyboard while it is open.
 		if (event.target instanceof Element && event.target.closest('[data-modal]')) return;
 		if (document.querySelector('[data-modal]')) return;
 
@@ -365,11 +436,23 @@
 				track.markers = track.markers.filter((m) => m.id !== ui.selectedMarkerId);
 				ui.selectedMarkerId = null;
 				event.preventDefault();
-			} else if (ui.selectedPointIndex !== null && track.points.length > 2) {
-				track.points = track.points.filter((_, i) => i !== ui.selectedPointIndex);
-				ui.selectedPointIndex = null;
+			} else if (ui.selectedPointIds.size && track.points.length - ui.selectedPointIds.size >= 2) {
+				track.points = track.points.filter((pt) => !ui.selectedPointIds.has(pt.id));
+				ui.selectedPointIds.clear();
 				event.preventDefault();
 			}
+		} else if (ARROW_KEYS[event.key] && track && ui.selectedPointIds.size) {
+			const [dx, dy] = ARROW_KEYS[event.key];
+			// Shift for a bigger nudge; scaled by `unit` so it stays a consistent
+			// on-screen distance at any zoom level, same idea as the stroke widths.
+			const step = (event.shiftKey ? 10 : 1) * unit;
+			for (const pt of track.points) {
+				if (ui.selectedPointIds.has(pt.id)) {
+					pt.x += dx * step;
+					pt.y += dy * step;
+				}
+			}
+			event.preventDefault();
 		} else if (event.key === ' ') {
 			ui.isPlaying = !ui.isPlaying;
 			event.preventDefault();
@@ -496,6 +579,19 @@
 		{/each}
 
 		{#if !ui.preview}
+			{#if marquee}
+				<rect
+					x={Math.min(marquee.x0, marquee.x1)}
+					y={Math.min(marquee.y0, marquee.y1)}
+					width={Math.abs(marquee.x1 - marquee.x0)}
+					height={Math.abs(marquee.y1 - marquee.y0)}
+					fill="rgba(88,166,255,0.12)"
+					stroke="#58a6ff"
+					stroke-width={1 * unit}
+					stroke-dasharray="{4 * unit} {4 * unit}"
+					pointer-events="none"
+				/>
+			{/if}
 
 		<!-- Handles -->
 		{#each track?.points ?? [] as point, i (point.id)}
@@ -549,7 +645,7 @@
 				cx={point.x}
 				cy={point.y}
 				r={8 * unit}
-				fill={ui.selectedPointIndex === i ? '#ffffff' : '#f2cc60'}
+				fill={ui.selectedPointIds.has(point.id) ? '#ffffff' : '#f2cc60'}
 				stroke="#0d1117"
 				stroke-width={2 * unit}
 				class="cursor-grab"
